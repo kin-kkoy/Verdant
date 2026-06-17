@@ -31,6 +31,12 @@ _Shared tracker across all agents/sessions. Newest log entry on top. Keep this c
       + derived week-at-a-glance. _(Photos → Vercel Blob is a deferred swap; one util + one line.)_
 - [ ] **Phase 3+ (later):** the game layer — garden growth, economy, companion + marathon. Art in cozy-cabin style.
 
+- **2026-06-17** — Added **skeleton loading screens** (`loading.tsx` per route: landing, standings,
+  journal, planner, garden, stable, requests) so navigation shows an instant placeholder while the
+  page's server data loads (covers the Neon cold-wake delay). Shared `components/skeletons.tsx`
+  (flat opacity-pulse, no gradient; respects reduced-motion). Login button shows a pending
+  "Signing in…" state via `useFormStatus` (`components/SubmitButton.tsx`). Also added the tab
+  **favicon** (`app/icon.svg`). Build clean (13 routes). _(build session)_
 - **2026-06-17** — **Efficiency pass** (cut backend cost before deploy). Removed the per-interaction
   `router.refresh()` cascade everywhere (kept `revalidatePath` so next-nav data is fresh). Planner
   now edits **locally** (buffered to a per-user/week localStorage draft for official users) and

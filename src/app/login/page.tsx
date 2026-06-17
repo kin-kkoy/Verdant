@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
+import SubmitButton from "@/components/SubmitButton";
 
 export const metadata = { title: "Sign in · Verdant" };
 
@@ -45,9 +46,7 @@ export default async function LoginPage({
           autoComplete="current-password"
           required
         />
-        <button className="btn lg" type="submit" style={{ width: "100%", justifyContent: "center" }}>
-          Sign in
-        </button>
+        <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
       </form>
     </main>
   );

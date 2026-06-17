@@ -314,6 +314,11 @@ footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1
 /* admin request inputs */
 .rinput{ width:100%; padding:11px 13px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg); color:var(--ink); font-size:15px; font-family:inherit; }
 .rinput:focus{ outline:none; border-color:var(--accent); }
+/* skeleton loading (flat pulse — no gradient, cheap) */
+@keyframes skpulse{ 0%,100%{ opacity:1; } 50%{ opacity:.45; } }
+.sk{ background:var(--surface-2); border-radius:8px; animation:skpulse 1.3s ease-in-out infinite; }
+.sk-card{ border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+
 /* refresh spinner */
 @keyframes spin{ to{ transform:rotate(360deg); } }
 .spin{ animation:spin .8s linear infinite; transform-origin:center; }
@@ -339,4 +344,4 @@ footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1
   .cal,.cal-head{ grid-template-columns:42px repeat(7,minmax(82px,1fr)); }
 }
 @media(max-width:560px){ .nav .links{ gap:14px; } .jgrid{ grid-template-columns:1fr; } .hero h1{ font-size:34px; } }
-@media(prefers-reduced-motion:reduce){ .leaf,.puff,.sway,.view.active,.lightbox img{ animation:none; } }
+@media(prefers-reduced-motion:reduce){ .leaf,.puff,.sway,.view.active,.lightbox img,.sk{ animation:none; } }
