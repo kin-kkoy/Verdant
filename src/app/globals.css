@@ -114,6 +114,14 @@ button{ font-family:inherit; cursor:pointer; border:none; background:none; color
 .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:24px; }
 .cols{ display:grid; grid-template-columns:1.5fr 1fr; gap:22px; align-items:stretch; }
 
+/* progress heading row + account kebab menu */
+.prog-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:28px; }
+.kebab-wrap{ position:relative; flex-shrink:0; }
+.menu-backdrop{ position:fixed; inset:0; z-index:90; }
+.menu{ position:absolute; right:0; top:46px; z-index:91; min-width:200px; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:6px; }
+.menu button{ display:block; width:100%; text-align:left; padding:9px 12px; border-radius:8px; font-size:14.5px; font-weight:500; color:var(--ink); }
+.menu button:hover{ background:var(--surface-2); }
+
 /* progress */
 .prog .big{ display:flex; align-items:baseline; gap:12px; }
 .prog .big b{ font-size:46px; font-weight:700; letter-spacing:-.03em; }

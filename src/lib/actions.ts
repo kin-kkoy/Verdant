@@ -60,6 +60,19 @@ export async function signOutAction(): Promise<void> {
   await signOut({ redirectTo: "/" });
 }
 
+/** Re-baseline the signed-in user's starting weight (e.g. after a long break). */
+export async function updateStartWeight(weight: number): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  if (!Number.isFinite(weight) || weight < 30 || weight > 400) {
+    return { ok: false, error: "Pick a weight between 30 and 400 kg." };
+  }
+  await db.update(users).set({ startWeight: String(round1(weight)) }).where(eq(users.id, userId));
+  revalidatePath("/");
+  revalidatePath("/standings");
+  return { ok: true };
+}
+
 /** Update the signed-in user's goal. `null` clears it (pure tracking, no goal). */
 export async function updateGoal(goal: number | null): Promise<ActionResult> {
   const userId = await requireUserId();

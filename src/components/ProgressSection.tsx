@@ -1,5 +1,5 @@
 import type { Dashboard } from "@/lib/data";
-import GoalEditor from "./GoalEditor";
+import AccountMenu from "./AccountMenu";
 
 // Server component — renders the "season so far" chart + goal ring from real
 // weigh-in data. Chart/ring math ported from premium-mockup.html.
@@ -13,20 +13,23 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
   return (
     <section className="section alt">
       <div className="wrap">
-        <div className="section-head">
-          <div className="eyebrow">The season so far</div>
-          <h2>
-            {d.lost > 0 ? (
-              <>
-                Down <em>{d.lost.toFixed(1)} kg</em> — trending the right way.
-              </>
-            ) : (
-              <>
-                The <em>first weigh-in</em> starts the story.
-              </>
-            )}
-          </h2>
-          <p>Every weigh-in plotted. The line only needs to keep drifting down.</p>
+        <div className="prog-head">
+          <div className="section-head" style={{ marginBottom: 0 }}>
+            <div className="eyebrow">The season so far</div>
+            <h2>
+              {d.lost > 0 ? (
+                <>
+                  Down <em>{d.lost.toFixed(1)} kg</em> — trending the right way.
+                </>
+              ) : (
+                <>
+                  The <em>first weigh-in</em> starts the story.
+                </>
+              )}
+            </h2>
+            <p>Every weigh-in plotted. The line only needs to keep drifting down.</p>
+          </div>
+          {editable ? <AccountMenu startWeight={d.startWeight} goalKg={d.goalKg} /> : null}
         </div>
         <div className="cols">
           <div className="card prog">
@@ -56,10 +59,9 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
             ) : (
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 17, fontWeight: 600 }}>Just tracking</div>
-                <div className="note">No goal set — the line just needs to drift down.</div>
+                <div className="note">No goal set — use ⋮ to add one anytime.</div>
               </div>
             )}
-            {editable ? <GoalEditor goalKg={d.goalKg} /> : null}
           </div>
         </div>
       </div>
