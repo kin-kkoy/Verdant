@@ -43,7 +43,8 @@ export default async function StandingsPage() {
       <div className="card">
         {rows.map((r, i) => {
           const isMe = meId != null && r.id === meId;
-          const toGo = Math.max(0, Math.round((r.goalKg - r.lost) * 10) / 10);
+          const hasGoal = r.goalKg != null && r.pct != null;
+          const toGo = hasGoal ? Math.max(0, Math.round((r.goalKg! - r.lost) * 10) / 10) : 0;
           return (
             <div className="srow" key={r.id}>
               <span className="lead-tag" style={i === 0 ? undefined : { color: "var(--faint)" }}>
@@ -73,13 +74,13 @@ export default async function StandingsPage() {
                       </b>{" "}
                       kg
                     </span>
-                    <span>{toGo.toFixed(1)} to go</span>
+                    <span>{hasGoal ? `${toGo.toFixed(1)} to go` : "tracking"}</span>
                   </div>
                   <div className="track">
-                    <i style={{ width: `${r.pct}%`, background: r.avatarColor }} />
+                    {hasGoal ? <i style={{ width: `${r.pct}%`, background: r.avatarColor }} /> : null}
                   </div>
                 </div>
-                <div className="endkg num">{r.pct}%</div>
+                <div className="endkg num">{hasGoal ? `${r.pct}%` : "—"}</div>
               </div>
             </div>
           );

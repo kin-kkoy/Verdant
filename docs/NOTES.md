@@ -84,6 +84,13 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
   centre to pointer; clamped 340…min(960,94vw)). Widening **adds image columns** (fixed cell size)
   rather than scaling content — single image shown large, 2+ in a column-adding grid showing all.
 
+## Goals are editable & optional (decided 2026-06-17)
+- The bet (lose 5 kg) is the **main** use case, but each user can **edit their own goal** (any kg)
+  or **clear it entirely** to just track with no goal. `users.goal_kg` is now **nullable** (null =
+  no goal); new accounts still default to 5. Self-service via `GoalEditor` (in the progress goal
+  card) → `updateGoal(number | null)`. `Dashboard.pct`/`Standing.pct` are `null` when no goal;
+  the ring, "to go", goal stat, and standings %/track all degrade gracefully to a "tracking" state.
+
 ## Cost/efficiency conventions (durable — keep Vercel/Neon usage low)
 - **Never call `router.refresh()` after a mutation.** Update local React state optimistically; keep
   `revalidatePath(...)` in the action (cache-bust only, no query) so the next *navigation* is fresh.

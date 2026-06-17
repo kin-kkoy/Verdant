@@ -1,0 +1,1 @@
+ALTER TABLE "users" ALTER COLUMN "goal_kg" DROP NOT NULL;

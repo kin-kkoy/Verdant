@@ -11,12 +11,12 @@ export type Dashboard = {
   name: string;
   avatarColor: string;
   startWeight: number;
-  goalKg: number;
+  goalKg: number | null; // null = no goal (just tracking)
   latestWeight: number | null;
   /** weight before the latest entry, for the "down X since last" line */
   prevWeight: number | null;
   lost: number;
-  pct: number;
+  pct: number | null; // null when there's no goal
   streak: number;
   daysIn: number;
   checkedInToday: boolean;
@@ -30,8 +30,8 @@ export type Standing = {
   name: string;
   avatarColor: string;
   lost: number;
-  pct: number;
-  goalKg: number;
+  pct: number | null;
+  goalKg: number | null;
   streak: number;
   latestWeighInDay: string | null;
 };
@@ -62,7 +62,7 @@ export async function getDashboard(userId: number): Promise<Dashboard | null> {
     weight: Number(w.weightKg),
   }));
   const startWeight = Number(user.startWeight);
-  const goalKg = Number(user.goalKg);
+  const goalKg = user.goalKg == null ? null : Number(user.goalKg);
   const latestWeight = series.length ? series[series.length - 1].weight : null;
   const prevWeight = series.length > 1 ? series[series.length - 2].weight : null;
   const lost = lostKg(startWeight, latestWeight);
@@ -78,7 +78,7 @@ export async function getDashboard(userId: number): Promise<Dashboard | null> {
     latestWeight,
     prevWeight,
     lost,
-    pct: progressPct(lost, goalKg),
+    pct: goalKg == null ? null : progressPct(lost, goalKg),
     streak: streakDays(checkinDays, today),
     daysIn: daysIn(betStart, today),
     checkedInToday: checkinDays.includes(today),
@@ -106,7 +106,7 @@ export async function getStandings(): Promise<Standing[]> {
       .where(eq(checkins.userId, user.id));
 
     const startWeight = Number(user.startWeight);
-    const goalKg = Number(user.goalKg);
+    const goalKg = user.goalKg == null ? null : Number(user.goalKg);
     const latest = wis.length ? Number(wis[wis.length - 1].weightKg) : null;
     const lost = lostKg(startWeight, latest);
 
@@ -115,7 +115,7 @@ export async function getStandings(): Promise<Standing[]> {
       name: user.name,
       avatarColor: user.avatarColor,
       lost,
-      pct: progressPct(lost, goalKg),
+      pct: goalKg == null ? null : progressPct(lost, goalKg),
       goalKg,
       streak: streakDays(
         cis.map((c) => c.day),

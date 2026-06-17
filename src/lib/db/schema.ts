@@ -29,7 +29,8 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   avatarColor: text("avatar_color").notNull().default("#c2632b"),
   startWeight: numeric("start_weight", { precision: 5, scale: 1 }).notNull(),
-  goalKg: numeric("goal_kg", { precision: 4, scale: 1 }).notNull().default("5"),
+  // null = no goal (pure tracking). Defaults to 5 for bet accounts.
+  goalKg: numeric("goal_kg", { precision: 4, scale: 1 }).default("5"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

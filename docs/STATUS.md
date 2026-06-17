@@ -31,6 +31,11 @@ _Shared tracker across all agents/sessions. Newest log entry on top. Keep this c
       + derived week-at-a-glance. _(Photos → Vercel Blob is a deferred swap; one util + one line.)_
 - [ ] **Phase 3+ (later):** the game layer — garden growth, economy, companion + marathon. Art in cozy-cabin style.
 
+- **2026-06-17** — **Editable + optional goals.** `users.goal_kg` made nullable (migration `0005`);
+  `updateGoal(number|null)` self-service action + `GoalEditor` modal in the progress goal card
+  ("Set/Edit goal" or "No goal — just track"). `pct`/`goalKg` are nullable through `data.ts`; the
+  goal stat, progress ring, "to go", and standings %/track degrade to a "just tracking" state when
+  no goal is set. Build clean. _(build session)_
 - **2026-06-17** — Added **skeleton loading screens** (`loading.tsx` per route: landing, standings,
   journal, planner, garden, stable, requests) so navigation shows an instant placeholder while the
   page's server data loads (covers the Neon cold-wake delay). Shared `components/skeletons.tsx`

@@ -60,6 +60,23 @@ export async function signOutAction(): Promise<void> {
   await signOut({ redirectTo: "/" });
 }
 
+/** Update the signed-in user's goal. `null` clears it (pure tracking, no goal). */
+export async function updateGoal(goal: number | null): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  let value: string | null = null;
+  if (goal != null) {
+    if (!Number.isFinite(goal) || goal <= 0 || goal > 200) {
+      return { ok: false, error: "Pick a goal between 0 and 200 kg." };
+    }
+    value = String(round1(goal));
+  }
+  await db.update(users).set({ goalKg: value }).where(eq(users.id, userId));
+  revalidatePath("/");
+  revalidatePath("/standings");
+  return { ok: true };
+}
+
 // ---------- Access requests (claim-code flow) ----------
 
 const CODE_TTL_DAYS = 14;

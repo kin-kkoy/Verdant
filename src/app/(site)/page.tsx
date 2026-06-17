@@ -1,5 +1,7 @@
 import { auth } from "@/lib/auth";
 import { getDashboard, getVisitorDashboard, type Dashboard } from "@/lib/data";
+import { todaySG } from "@/lib/date";
+import { dailyLine } from "@/lib/quotes";
 import CabinScene from "@/components/CabinScene";
 import CheckinCard from "@/components/CheckinCard";
 import WeighInCard from "@/components/WeighInCard";
@@ -21,9 +23,7 @@ export default async function LandingPage() {
         <div className="wrap">
           <div className="eyebrow">Autumn at the cabin · Day {d.daysIn}</div>
           <h1>
-            Two friends, five kilos,
-            <br />
-            one <em>cozy season</em>.
+            <em>{dailyLine(todaySG())}</em>
           </h1>
           <p className="lede">
             Tap a sign to wander down to the garden or the stable. The cabin&apos;s just home.
@@ -45,10 +45,16 @@ export default async function LandingPage() {
           </div>
           <div className="stat">
             <div className="v num">
-              {d.goalKg.toFixed(0)}
-              <span className="u">kg</span>
+              {d.goalKg != null ? (
+                <>
+                  {d.goalKg.toFixed(0)}
+                  <span className="u">kg</span>
+                </>
+              ) : (
+                "—"
+              )}
             </div>
-            <div className="l">The goal</div>
+            <div className="l">{d.goalKg != null ? "The goal" : "No goal"}</div>
           </div>
           <div className="stat">
             <div className="v num">{d.streak}</div>

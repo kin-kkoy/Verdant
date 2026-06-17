@@ -1,11 +1,14 @@
 import type { Dashboard } from "@/lib/data";
+import GoalEditor from "./GoalEditor";
 
 // Server component — renders the "season so far" chart + goal ring from real
 // weigh-in data. Chart/ring math ported from premium-mockup.html.
 export default function ProgressSection({ d }: { d: Dashboard }) {
   const vals = d.series.map((p) => p.weight);
   const lostLabel = d.lost >= 0 ? `−${d.lost.toFixed(1)} kg` : `+${Math.abs(d.lost).toFixed(1)} kg`;
-  const toGo = Math.max(0, Math.round((d.goalKg - d.lost) * 10) / 10);
+  const hasGoal = d.goalKg != null;
+  const toGo = hasGoal ? Math.max(0, Math.round((d.goalKg! - d.lost) * 10) / 10) : 0;
+  const editable = d.mode === "official";
 
   return (
     <section className="section alt">
@@ -33,20 +36,30 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
               <span className="delta">{lostLabel}</span>
             </div>
             <div className="cap">
-              Started at {d.startWeight.toFixed(1)} kg · {toGo.toFixed(1)} kg to your{" "}
-              {d.goalKg.toFixed(0)} kg goal
+              Started at {d.startWeight.toFixed(1)} kg ·{" "}
+              {hasGoal
+                ? `${toGo.toFixed(1)} kg to your ${d.goalKg!.toFixed(0)} kg goal`
+                : `${Math.max(0, d.lost).toFixed(1)} kg lost so far · no goal set`}
             </div>
             <div style={{ marginTop: 20 }}>
               <Chart vals={vals} />
             </div>
           </div>
           <div className="card goal-card">
-            <Ring pct={d.pct} />
-            <div className="note">
-              {toGo.toFixed(1)} kg to go — about
-              <br />
-              three good autumn weeks.
-            </div>
+            {hasGoal ? (
+              <>
+                <Ring pct={d.pct ?? 0} />
+                <div className="note">
+                  {toGo > 0 ? `${toGo.toFixed(1)} kg to go` : "Goal reached 🎉"}
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 17, fontWeight: 600 }}>Just tracking</div>
+                <div className="note">No goal set — the line just needs to drift down.</div>
+              </div>
+            )}
+            {editable ? <GoalEditor goalKg={d.goalKg} /> : null}
           </div>
         </div>
       </div>

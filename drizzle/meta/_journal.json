@@ -36,6 +36,13 @@
       "when": 1781694602321,
       "tag": "0004_lyrical_expediter",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781704116213,
+      "tag": "0005_wide_arclight",
+      "breakpoints": true
     }
   ]
 }
