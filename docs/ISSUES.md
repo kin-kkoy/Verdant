@@ -13,8 +13,11 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
 - [x] **Planner week navigation:** DONE — prev/next via `?week=YYYY-MM-DD`, previous weeks
       unlimited, capped at **3 weeks ahead** (`PLANNER_WEEKS_AHEAD` in `date.ts`), with a "Today"
       jump. Range validated server-side in both the page and `addPlanBlock` (no trust in input).
-- [ ] **Garden/Stable are non-persistent placeholders:** interactions are in-memory only; the real
-      growth/companion model is the deferred game layer (Phase 3+).
+- [~] **Garden → real game layer (Phase 3, IN PROGRESS):** the in-memory `GardenScene` becomes
+      a persistent, server-authoritative garden (two-layer: bet plants derived from real kg +
+      tended pots from soft currencies). Building 3a (foundations) → 3b (decay) → 3c (skins).
+      **Stable companion + marathon stay non-persistent placeholders — deferred to Phase 4**
+      (with the automation tree). See NOTES "Game layer" + plan `dapper-sprouting-pixel.md`.
 - [x] **Timezone for "today"/streak rollover:** RESOLVED — fixed group TZ `Asia/Singapore`,
       centralized in `src/lib/date.ts` (`todaySG`). All day logic must go through it.
 - [x] **Neon connection limits:** RESOLVED — using `@neondatabase/serverless` HTTP driver;
@@ -38,7 +41,9 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
 - [ ] **Photo storage:** move off base64 → Vercel Blob; downscale client-side before upload.
 
 ## Safe to SKIP for v1 (ship faster; revisit later)
-- **Server-authoritative economy & anti-cheat** — N/A until the game layer (Phase 3+); 5 trusted users.
+- **Anti-cheat hardening** — economy IS server-authoritative as of Phase 3 (idle/decay from
+  stored `last_seen`, never the client clock), but deeper anti-cheat is unnecessary — 5 trusted
+  users, and the firewall keeps kg/standings untouchable regardless.
 - **Real-time / multiplayer sync** — intentionally NOT websockets (serverless can't hold sockets;
   would need a paid 3rd-party service, against self-host/$0). Instead: an in-app **Refresh button**
   (`router.refresh()`) + **refetch-on-focus**, throttled so a real fetch happens at most once per

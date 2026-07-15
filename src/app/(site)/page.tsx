@@ -5,6 +5,7 @@ import { dailyLine } from "@/lib/quotes";
 import CabinScene from "@/components/CabinScene";
 import CheckinCard from "@/components/CheckinCard";
 import WeighInCard from "@/components/WeighInCard";
+import NotificationSetup from "@/components/NotificationSetup";
 import ProgressSection from "@/components/ProgressSection";
 import Footer from "@/components/Footer";
 
@@ -86,6 +87,7 @@ export default async function LandingPage() {
             />
             <WeighInCard mode={d.mode} latestWeight={d.latestWeight} prevWeight={d.prevWeight} />
           </div>
+          {d.mode === "official" && <NotificationSetup />}
         </div>
       </section>
 

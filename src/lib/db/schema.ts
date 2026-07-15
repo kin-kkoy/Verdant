@@ -6,6 +6,7 @@ import {
   date,
   numeric,
   timestamp,
+  jsonb,
   unique,
 } from "drizzle-orm/pg-core";
 
@@ -31,6 +32,13 @@ export const users = pgTable("users", {
   startWeight: numeric("start_weight", { precision: 5, scale: 1 }).notNull(),
   // null = no goal (pure tracking). Defaults to 5 for bet accounts.
   goalKg: numeric("goal_kg", { precision: 4, scale: 1 }).default("5"),
+  // Reminder prefs (Chunk B). reminderMinute = minutes since local midnight the
+  // user wants their daily nudge (multiple of 30), null = no time set. timezone is
+  // the IANA zone captured from their phone. lastNudgedDay guards against sending
+  // twice in one day (group-TZ "YYYY-MM-DD").
+  reminderMinute: integer("reminder_minute"),
+  timezone: text("timezone").notNull().default("Asia/Singapore"),
+  lastNudgedDay: date("last_nudged_day"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -46,6 +54,20 @@ export const checkins = pgTable(
   },
   (t) => [unique("checkins_user_day").on(t.userId, t.day)],
 );
+
+// Web Push subscriptions — one row per browser/device a user enabled reminders on.
+// A user can have several (phone + laptop). `endpoint` is globally unique (the push
+// service URL); expired ones (410/404 on send) are pruned by the sender.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  authKey: text("auth_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Weigh-ins — the source of truth for the bet. One per user per day (upsert).
 export const weighIns = pgTable(
@@ -122,10 +144,60 @@ export const accessRequests = pgTable("access_requests", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Game layer (Phase 3) — the garden. ADDITIVE: this table touches none of the
+ * firewall tables above. Standings/kg are still derived only from `weighIns`.
+ *
+ * Stored here = the TENDED garden + soft currencies + spend counter. The BET
+ * garden (plants that grow with real kg) is NOT stored — it's derived from
+ * weigh-ins on read. Bloom/Pure Bloom are likewise derived from kg truth; we
+ * persist only `bloomSpent` (the spend), never the balance.
+ *
+ * `companions`, `gifts`, `races` (BUILD-PLAN §2) are deferred to Phase 4.
+ */
+export type AutomationId = "drip" | "bee" | "worms" | "greenhouse";
+
+// One pot in the TENDED garden (grown from soft currencies; subject to §4.4 decay).
+export type TendedPlant = {
+  id: string;
+  species: string; // logical key resolved by the asset registry
+  stage: number; // 0..4 growth
+  wilt: number; // 0 = healthy … rises when neglected (Phase 3b decay)
+  plantedAt: string; // group-TZ "YYYY-MM-DD"
+};
+
+// Customization slots (Phase 3c). Empty = default skin.
+export type GardenSkin = {
+  vessel?: string;
+  sky?: string;
+  ground?: string;
+  palette?: string;
+  critter?: string;
+};
+
+export const gardens = pgTable("gardens", {
+  userId: integer("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // soft currencies (§4.1) — earned by logging, spendable, decay in Phase 3b
+  sun: integer("sun").notNull().default(0),
+  water: integer("water").notNull().default(0),
+  compost: integer("compost").notNull().default(0),
+  // only the SPEND is stored; spendable Bloom balance = earned(derived from kg) − this
+  bloomSpent: integer("bloom_spent").notNull().default(0),
+  skin: jsonb("skin").$type<GardenSkin>().notNull().default({}),
+  plantState: jsonb("plant_state").$type<TendedPlant[]>().notNull().default([]),
+  automation: jsonb("automation").$type<AutomationId[]>().notNull().default([]),
+  // idle/decay anchor — server-authoritative; never trust the client clock
+  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type WeighIn = typeof weighIns.$inferSelect;
 export type Checkin = typeof checkins.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type DiaryEntry = typeof diaryEntries.$inferSelect;
 export type PlanItem = typeof planItems.$inferSelect;
 export type AccessRequest = typeof accessRequests.$inferSelect;
+export type Garden = typeof gardens.$inferSelect;

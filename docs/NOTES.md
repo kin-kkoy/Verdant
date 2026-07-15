@@ -48,12 +48,45 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
   button lets a visitor ask to become official.
 - **Persistent stay-logged-in** (long session), like YouTube/Claude. No open public signup.
 
-## Game layer (DEFERRED to Phase 3+)
-- Garden = weight progress (plants grow as you lose). Stable = a companion trained by your
-  real activity, for an end-of-season **marathon** (for fun / impromptu side-bet).
-- Economy: 4 soft currencies + a **Pure Bloom** counter, meaningful-but-fair decay (with a
-  firewall protecting kg/standings), streak-gated automation. Full design: `SPECS.md §4`.
-- Not a launch blocker. Rebuild any art in the cozy-cabin style.
+## Game layer (Phase 3 — IN PROGRESS, garden-first; companion → Phase 4)
+- Garden = weight progress (plants grow as you lose). Stable companion + end-of-season
+  **marathon** are **deferred to Phase 4**. Full design ref: `SPECS.md §4`.
+- **Two-layer garden** (the key design — honors meaningful decay AND the firewall):
+  - **Bet garden** — core beds; growth **DERIVED from real kg** (read of the truth),
+    **never dies**, only droops cosmetically when neglected → revives on check-in.
+    Layout: **5 beds, one blooms per kg, scaled to the user's `goal_kg`** (no-goal accounts
+    get an open-ended garden, no bloom cap). No storage — computed from `weigh_ins`.
+  - **Tended garden** — extra pots grown from soft currencies + idle; carries the **full
+    §4.4 decay incl. death/regrow**. Decay only ever touches THESE + soft currencies.
+- **Economy lives in `src/lib/economy.ts`** (pure, unit-tested — the game's home, mirroring
+  how `stats.ts` is the firewall's home). One-way imports: economy → stats/date, never back.
+  - Soft currencies (Sun/Water/Compost) earned by logging (logging *is* earning; folded into
+    `checkInToday`/log actions). Tag→currency map: **Water currency** ← Workout/Walk/Yoga;
+    **Compost currency** ← Clean eating / Water(=hydration) / Sleep. *(Name collision: the
+    "Water" activity tag = hydration → Compost; the Water currency is exercise.)*
+  - **Bloom & Pure Bloom are DERIVED from kg truth, not stored.** Pure Blooms = monotonic
+    `floor(max_kg_lost_ever / 0.5)`; spendable balance = `earned − bloom_spent` (store only
+    `bloom_spent`). Spending never moves kg/standings/Pure Blooms.
+- **`gardens` table** (migration `0006`, additive — touches no firewall table):
+  `sun, water, compost, bloom_spent, skin jsonb, plant_state jsonb (tended pots only),
+  automation jsonb, last_seen`. `companions/gifts/races` NOT created yet (Phase 4).
+- **Server-authoritative** idle/decay computed from stored `last_seen` vs server `now`
+  (never the client clock). Visitor garden = in-memory demo only (no DB/localStorage).
+- Sub-phases: **3a** foundations (no decay) → **3b** idle + decay → **3c** skins + automation
+  + Bloom sinks. Check in at each boundary before building the next.
+
+## Assets — strategy (decided 2026-06-18: asset-agnostic seam)
+- Art style is **NOT locked** (owner leans CC0 flat-vector > parametric generator > pixel,
+  and may supply **own assets**) → don't marry the economy to any art source.
+- **Asset-agnostic rendering seam:** game logic renders by **logical key** (`{species,stage}`,
+  decor, vessel); a **registry** resolves a key to a renderer. Default = **parametric SVG
+  generator** (`genPlant`+`SPECIES` in `src/lib/garden/plants.tsx`, fills with CSS palette
+  vars so light/dark is free, zero binary assets → self-host clean). **File override** =
+  manifest mapping a key to bundled assets under `public/garden/…` (`<species>/<stage>.svg|png`
+  + optional `-dark`). Resolution: file renderer → generator fallback. Swapping art edits a
+  manifest, never the game code. `CREDITS.md` added only if a CC-BY pack is bundled.
+- Still: **never ripped game art** (no real Stardew/Pokémon sprites). Prefer CC0; AI art only
+  as one-off decor accents (gnome/cat), never the core plants.
 
 ## Planner schedule — build notes
 - 12-hour labels (`7 AM`), show **all 24 hours** (Google-Calendar style), **auto-scroll to the

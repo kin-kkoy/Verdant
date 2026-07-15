@@ -2,10 +2,20 @@
 
 _Shared tracker across all agents/sessions. Newest log entry on top. Keep this current._
 
-## Current state (2026-06-17)
+## Log (2026-07-15) — PWA + push notifications built (not yet activated)
+- **PWA (Chunk A):** installable, offline-capable app shell — manifest, maskable icons,
+  auth-safe service worker, offline page. Reuses the whole Next.js stack; Android install ready.
+- **Reminders (Chunk B):** Web Push with a **per-user reminder time** (30-min slots, per-timezone).
+  Triggered by a free external 30-min pinger ([cron-job.org](https://cron-job.org)), NOT Vercel Cron
+  (Hobby caps that at 1/day). Migrations `0007` + `0008` (additive). Build + 33 tests green.
+- **Not live yet** — needs: `npm run db:migrate`, VAPID keys, `CRON_SECRET`, deploy, and the pinger.
+  **Full setup + test steps: see `docs/NOTIFICATIONS.md`.**
+
+## Current state (2026-06-18)
 - **Phase:** Phase 0 + 1 + 2 **built & verified locally** (build clean — 9 routes, 17 tests pass,
-  all routes 200). Live against the owner's Neon DB (account: Makkaon). Game layer (Phase 3+)
-  remains deferred. Vercel deploy still deferred (running local).
+  all routes 200). Live against the owner's Neon DB (account: Makkaon). Vercel deploy still
+  deferred (running local). **Phase 3 (game layer) is now IN PROGRESS** — design approved,
+  building sub-phase 3a (see roadmap + log below).
 - **Canonical prototype:** `prototypes/premium-mockup.html` — cozy cabin, light/dark,
   landing page + Garden & Stable pages (both top-down 2D) + Journal/Planner/Standings.
   Front-end only; nothing persists.
@@ -29,7 +39,37 @@ _Shared tracker across all agents/sessions. Newest log entry on top. Keep this c
       to a data URL in Postgres for now) with add modal + delete; per-user planner with interactive
       24h schedule (click-add, drag-move, rename, delete, auto-scroll to first block, expand toggle)
       + derived week-at-a-glance. _(Photos → Vercel Blob is a deferred swap; one util + one line.)_
-- [ ] **Phase 3+ (later):** the game layer — garden growth, economy, companion + marathon. Art in cozy-cabin style.
+- [~] **Phase 3 — Game layer (garden-first), IN PROGRESS.** Plan approved 2026-06-18.
+      Sub-phases: **3a** foundations (gardens table, `economy.ts` earn + derived blooms,
+      asset seam, bet plants from real kg, currency HUD) → **3b** idle + meaningful decay →
+      **3c** customization/skins + automation tree + Bloom spend sinks. Companion + marathon
+      pushed to **Phase 4**. Art is **not locked** → built behind an asset-agnostic seam
+      (parametric SVG generator default; bundled CC0/own assets override by manifest).
+- [ ] **Phase 4 (later):** companion + marathon (Stable), garden visiting/gifts.
+
+- **2026-06-18** — **Phase 3a built & verified locally (game-layer foundations).** New
+  `gardens` table (migration `0006`, applied to Neon — additive, no firewall table touched).
+  New **`src/lib/economy.ts`** (pure, the game's home; one-way imports from stats/date) +
+  **`economy.test.ts`** (16 tests). Asset seam: **`src/lib/garden/plants.tsx`** (parametric
+  `genPlant` + 6 `SPECIES` + `PlantArt` resolver, CSS-var fills → light/dark free) and
+  **`assets.ts`** (file-override manifest, empty = generator default). `data.ts` `getGarden`
+  (lazy-creates row; bet beds + Blooms DERIVED from weigh-ins; currencies/tended from storage)
+  + `getVisitorGarden`. Earning folded into `checkInToday` (Sun + tag→Water/Compost, awarded
+  once on the day's first check-in). New `plantSeed`/`tendPlant` spend actions (optimistic,
+  `revalidatePath` only). `GardenScene` now props-driven: currency HUD, kg-derived bet beds
+  (read-only), tended pots (tap to grow). Build clean (13 routes), tsc clean, **33 tests pass**,
+  all routes 200 incl. visitor `/garden` ("guest — not saved", in-memory). _NO idle/decay yet
+  (3b)._ _(build session)_
+- **2026-06-18** — **Phase 3 designed & approved (game layer, garden-first).** Locked via
+  owner Q&A: garden-first light economy; meaningful-but-fair decay (§4.4); companion
+  deferred to Phase 4; **art style NOT locked** (owner leans CC0 flat-vector > generator >
+  pixel, may bring own assets) → build an **asset-agnostic rendering seam** (generator
+  default, files override). Core design: **two-layer garden** — a *bet garden* whose
+  growth is DERIVED from real kg (firewall-safe, never dies, droops cosmetically) + a
+  *tended garden* grown from soft currencies that carries the full §4.4 decay. Bet garden:
+  **5 beds, one blooms per kg, scaled to each user's `goal_kg`** (open-ended for no-goal
+  accounts). Bloom/Pure Bloom **derived** from weigh-in truth (store only `bloom_spent`).
+  Plan: `~/.claude/plans/dapper-sprouting-pixel.md`. _(design session)_
 
 - **2026-06-17** — **Editable + optional goals.** `users.goal_kg` made nullable (migration `0005`);
   `updateGoal(number|null)` self-service action + `GoalEditor` modal in the progress goal card

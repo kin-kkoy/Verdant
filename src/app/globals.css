@@ -114,6 +114,16 @@ button{ font-family:inherit; cursor:pointer; border:none; background:none; color
 .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:24px; }
 .cols{ display:grid; grid-template-columns:1.5fr 1fr; gap:22px; align-items:stretch; }
 
+/* daily-reminders (push) opt-in row under the check-in cards */
+.reminder-card{ margin-top:18px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 18px; }
+.reminder-text{ display:flex; flex-direction:column; gap:2px; }
+.reminder-text strong{ font-size:14.5px; }
+.reminder-text span{ font-size:13px; color:var(--muted, #8a755c); }
+.reminder-controls{ display:flex; align-items:center; gap:10px; }
+.reminder-time{ font-size:14px; font-weight:600; color:var(--ink); background:var(--surface-2);
+  border:1px solid var(--line-2); border-radius:10px; padding:9px 12px; cursor:pointer; }
+
 /* progress heading row + account kebab menu */
 .prog-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:28px; }
 .kebab-wrap{ position:relative; flex-shrink:0; }
@@ -166,6 +176,13 @@ textarea:focus{ outline:none; border-color:var(--accent); }
 .float.pop{ animation:floatpop 1.15s var(--ease) forwards; }
 .toolbar{ display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; align-items:center; }
 .toolbar .hint{ font-size:13.5px; color:var(--muted); }
+
+/* garden currency HUD (Phase 3) — flat chips, no gradients */
+.ghud{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
+.res{ display:inline-flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:30px; padding:6px 12px; }
+.res .ri{ font-size:15px; line-height:1; }
+.res b{ color:var(--accent-ink); font-variant-numeric:tabular-nums; }
+.res.bloom{ border-color:var(--accent-soft); background:var(--accent-soft); color:var(--accent-ink); }
 
 /* standings / journal / planner */
 .srow{ display:grid; grid-template-columns:auto 1fr auto; gap:18px; align-items:center; padding:20px 4px; border-top:1px solid var(--line); }

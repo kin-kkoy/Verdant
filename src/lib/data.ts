@@ -1,8 +1,10 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, logs, planItems, users, weighIns } from "./db/schema";
+import { accessRequests, checkins, diaryEntries, gardens, logs, planItems, users, weighIns } from "./db/schema";
+import type { TendedPlant } from "./db/schema";
 import { relativeFromNow, todaySG, weekStartSG } from "./date";
 import { daysIn, lostKg, progressPct, round1, streakDays } from "./stats";
+import { betGardenStages, bloomBalance, deriveBlooms } from "./economy";
 
 export type WeightPoint = { day: string; weight: number };
 
@@ -161,6 +163,73 @@ export function getVisitorDashboard(): Dashboard {
     todayTags: ["Workout", "Clean eating"],
     todayNote: "",
     series,
+  };
+}
+
+// ---------- Garden (game layer, Phase 3) ----------
+
+export type GardenView = {
+  mode: "official" | "visitor";
+  currencies: { sun: number; water: number; compost: number };
+  pureBlooms: number;
+  bloomBalance: number;
+  /** BET garden: one growth stage (0..4) per bed, DERIVED from real kg (firewall read). */
+  betBeds: number[];
+  /** TENDED garden: pots grown from soft currencies (persisted; §4.4 decay in 3b). */
+  tended: TendedPlant[];
+};
+
+/** Ensure a garden row exists for the user (lazy create on first visit). */
+async function ensureGardenRow(userId: number) {
+  await db.insert(gardens).values({ userId }).onConflictDoNothing({ target: gardens.userId });
+  const [row] = await db.select().from(gardens).where(eq(gardens.userId, userId)).limit(1);
+  return row;
+}
+
+/**
+ * Load the garden for one official user. The BET garden + Blooms are DERIVED from
+ * real weigh-ins (the firewall truth — no game state can alter them); only soft
+ * currencies + tended pots are read from storage. (Idle/decay arrives in Phase 3b.)
+ */
+export async function getGarden(userId: number): Promise<GardenView | null> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return null;
+
+  const wis = await db
+    .select({ weightKg: weighIns.weightKg })
+    .from(weighIns)
+    .where(eq(weighIns.userId, userId));
+  const series = wis.map((w) => Number(w.weightKg));
+  const startWeight = Number(user.startWeight);
+  const goalKg = user.goalKg == null ? null : Number(user.goalKg);
+  const latest = series.length ? series[series.length - 1] : null;
+  const lost = lostKg(startWeight, latest);
+
+  const { pureBlooms, earnedBlooms } = deriveBlooms(series, startWeight);
+  const row = await ensureGardenRow(userId);
+
+  return {
+    mode: "official",
+    currencies: { sun: row.sun, water: row.water, compost: row.compost },
+    pureBlooms,
+    bloomBalance: bloomBalance(earnedBlooms, row.bloomSpent),
+    betBeds: betGardenStages(lost, goalKg),
+    tended: row.plantState ?? [],
+  };
+}
+
+/** Visitor teaser — in-memory only, nothing persisted (NOTES hard rule). */
+export function getVisitorGarden(): GardenView {
+  return {
+    mode: "visitor",
+    currencies: { sun: 40, water: 60, compost: 25 },
+    pureBlooms: 4,
+    bloomBalance: 4,
+    betBeds: betGardenStages(2.3, 5), // matches the visitor dashboard's 2.3 kg lost
+    tended: [
+      { id: "demo-1", species: "aster", stage: 3, wilt: 0, plantedAt: "2026-06-10" },
+      { id: "demo-2", species: "daisy", stage: 2, wilt: 0, plantedAt: "2026-06-14" },
+    ],
   };
 }
 

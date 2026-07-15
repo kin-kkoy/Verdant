@@ -21,6 +21,21 @@ export function todaySG(now: Date = new Date()): string {
   return fmt.format(now);
 }
 
+/** Minutes since local midnight (0–1439) in an IANA timezone. Used to match a
+ *  user's preferred reminder time against "now" in their own zone. h23 keeps
+ *  midnight as 00, not 24. */
+export function nowMinutesInTz(timezone: string, now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return h * 60 + m;
+}
+
 /** "YYYY-MM-DD" → days since the Unix epoch (for adjacency math). TZ-agnostic. */
 export function dayNumber(isoDay: string): number {
   const [y, m, d] = isoDay.split("-").map(Number);

@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Full-bleed background: the platform mask (circle/squircle) supplies the shape,
+       so no rounded corners here. Art is inset to ~70% for the maskable safe zone. -->
+  <rect width="512" height="512" fill="#faf3e6"/>
+  <g transform="translate(76.8 76.8) scale(11.2)">
+    <g transform="translate(4 4)">
+      <path d="M12 21V12" stroke="#c2632b" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M12 13c-4 0-6.5-2.5-6.5-6.5C9.5 6.5 12 9 12 13z" fill="#c2632b"/>
+      <path d="M12 11c0-3.4 2.3-5.8 5.8-5.8C17.8 8.6 15.5 11 12 11z" fill="#d4953a"/>
+    </g>
+  </g>
+</svg>

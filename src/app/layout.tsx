@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Hanken_Grotesk, Instrument_Serif } from "next/font/google";
 import "./globals.css";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 const sans = Hanken_Grotesk({
   subsets: ["latin"],
@@ -19,6 +20,7 @@ const serif = Instrument_Serif({
 export const metadata: Metadata = {
   title: "Verdant — a cozy cabin for two",
   description: "A private cozy-cabin tracker for a friendly 5 kg weight-loss bet.",
+  appleWebApp: { capable: true, title: "Verdant", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -46,7 +48,10 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }

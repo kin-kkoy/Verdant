@@ -1,49 +1,32 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { GardenView } from "@/lib/data";
+import type { TendedPlant } from "@/lib/db/schema";
+import { plantSeed, tendPlant } from "@/lib/actions";
+import { COST, MAX_STAGE } from "@/lib/economy";
+import { PlantArt, speciesForBed, speciesById, stageLabel } from "@/lib/garden/plants";
 
-// Top-down garden scene. Phase 1: interactive but IN-MEMORY ONLY — tending beds
-// does not persist (the real garden growth model is the deferred game layer, Phase 3+).
-
-type Bed = { x: number; y: number; g: number };
-const INITIAL: Bed[] = [
-  { x: 60, y: 120, g: 3 },
-  { x: 60, y: 300, g: 2 },
-  { x: 720, y: 120, g: 4 },
-  { x: 720, y: 300, g: 1 },
-];
-const PLOT_COLORS = ["#d27ba0", "#d4953a", "#c8642f", "#b48ed9"];
-const SPOTS = [
-  [60, 55],
-  [110, 90],
-  [160, 50],
-  [90, 120],
-  [150, 115],
-];
-const STAGE_LABEL = ["Seedlings", "Sprouting", "Leafing", "In bloom"];
+// Phase 3a garden. Two layers (see NOTES "Game layer"):
+//  • BET garden — beds whose growth is DERIVED from real kg (firewall read).
+//    Read-only here; they grow as you actually lose weight. Never die.
+//  • TENDED garden — pots grown by spending soft currency earned from logging.
+// Official users persist via server actions (optimistic, no router.refresh).
+// Visitors mutate in-memory only — wiped on refresh (NOTES hard rule).
 
 let floatSeq = 0;
+let localSeq = 0;
 
-export default function GardenScene() {
-  const [beds, setBeds] = useState<Bed[]>(INITIAL.map((b) => ({ ...b })));
-  const [grass, setGrass] = useState<{ cx: number; cy: number; r: number }[]>([]);
+export default function GardenScene({ garden }: { garden: GardenView }) {
+  const visitor = garden.mode === "visitor";
+  const [currencies, setCurrencies] = useState(garden.currencies);
+  const [tended, setTended] = useState<TendedPlant[]>(garden.tended);
   const [floats, setFloats] = useState<{ id: number; x: number; y: number; txt: string }[]>([]);
-  const idBase = useId();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  useEffect(() => {
-    // Grass dots use randomness → generate client-side to avoid hydration mismatch.
-    const out = [];
-    for (let i = 0; i < 90; i++) {
-      out.push({
-        cx: Math.round(Math.random() * 1000),
-        cy: Math.round(60 + Math.random() * 470),
-        r: Math.round((1.5 + Math.random() * 2) * 10) / 10,
-      });
-    }
-    setGrass(out);
-    return () => timers.current.forEach(clearTimeout);
-  }, []);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   function spawnFloat(x: number, y: number, txt: string) {
     const id = ++floatSeq;
@@ -51,83 +34,140 @@ export default function GardenScene() {
     const t = setTimeout(() => setFloats((f) => f.filter((fl) => fl.id !== id)), 1100);
     timers.current.push(t);
   }
-
-  function tend(i: number) {
-    setBeds((prev) => prev.map((b, j) => (j === i && b.g < 4 ? { ...b, g: b.g + 1 } : b)));
-    spawnFloat(beds[i].x + 110, beds[i].y + 40, "💧");
+  function flash(text: string) {
+    setMsg(text);
+    const t = setTimeout(() => setMsg(null), 2200);
+    timers.current.push(t);
+  }
+  function canAfford(cost: { sun: number; water: number; compost: number }) {
+    return currencies.sun >= cost.sun && currencies.water >= cost.water && currencies.compost >= cost.compost;
   }
 
-  function waterAll() {
-    setBeds((prev) => prev.map((b) => (b.g < 4 ? { ...b, g: b.g + 1 } : b)));
-    for (let k = 0; k < 5; k++) {
-      const t = setTimeout(
-        () => spawnFloat(120 + Math.random() * 760, 120 + Math.random() * 300, ["💧", "🌱", "🍂"][k % 3]),
-        k * 120,
-      );
-      timers.current.push(t);
+  async function onPlant() {
+    if (busy) return;
+    if (!canAfford(COST.plantSeed)) return flash(`Need ${COST.plantSeed.water}💧 to plant a seed — log a workout.`);
+    if (visitor) {
+      const species = speciesForBed(tended.length).id;
+      setCurrencies((c) => ({ ...c, water: c.water - COST.plantSeed.water }));
+      setTended((t) => [...t, { id: `local-${++localSeq}`, species, stage: 0, wilt: 0, plantedAt: "today" }]);
+      spawnFloat(500, 430, "🌱");
+      return;
     }
+    setBusy(true);
+    const res = await plantSeed();
+    setBusy(false);
+    if (res.ok) {
+      setCurrencies(res.currencies);
+      setTended(res.tended);
+      spawnFloat(500, 430, "🌱");
+    } else flash(res.error);
   }
+
+  async function onTend(plant: TendedPlant, x: number, y: number) {
+    if (busy || plant.stage >= MAX_STAGE) return;
+    if (!canAfford(COST.tendStage)) return flash(`Need ${COST.tendStage.water}💧 to tend — log activity to earn more.`);
+    if (visitor) {
+      setCurrencies((c) => ({ ...c, water: c.water - COST.tendStage.water }));
+      setTended((t) => t.map((p) => (p.id === plant.id ? { ...p, stage: p.stage + 1 } : p)));
+      spawnFloat(x, y, "💧");
+      return;
+    }
+    setBusy(true);
+    const res = await tendPlant(plant.id);
+    setBusy(false);
+    if (res.ok) {
+      setCurrencies(res.currencies);
+      setTended(res.tended);
+      spawnFloat(x, y, "💧");
+    } else flash(res.error);
+  }
+
+  // ---- layout ----
+  const beds = garden.betBeds;
+  const cols = Math.min(Math.max(beds.length, 1), 4);
+  const rows = Math.ceil(beds.length / cols);
+  const X0 = 80, X1 = 920, Y0 = 96, Y1 = rows > 1 ? 300 : 230;
+  const cellW = (X1 - X0) / cols;
+  const cellH = rows > 1 ? (Y1 - Y0) / rows : 0;
+  function bedPos(i: number) {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    return { cx: X0 + cellW * c + cellW / 2, cy: rows > 1 ? Y0 + cellH * r + cellH / 2 : (Y0 + Y1) / 2 };
+  }
+
+  // tended pots along a shelf near the bottom
+  const potY = 452;
+  const potCount = Math.max(tended.length, 1);
+  const potGap = Math.min(120, 840 / potCount);
+  const potX0 = 500 - ((potCount - 1) * potGap) / 2;
 
   return (
     <>
+      <div className="ghud">
+        <span className="res"><span className="ri">☀️</span><b>{currencies.sun}</b> Sun</span>
+        <span className="res"><span className="ri">💧</span><b>{currencies.water}</b> Water</span>
+        <span className="res"><span className="ri">🪱</span><b>{currencies.compost}</b> Compost</span>
+        <span className="res bloom"><span className="ri">🌸</span><b>{garden.bloomBalance}</b> Bloom</span>
+        <span className="res bloom"><span className="ri">🏆</span><b>{garden.pureBlooms}</b> Pure</span>
+      </div>
+
       <div className="stage">
-        <svg viewBox="0 0 1000 540" aria-label="A top-down garden">
+        <svg viewBox="0 0 1000 540" aria-label="A top-down garden of beds and tended pots">
           <rect width="1000" height="540" fill="var(--olive)" opacity=".85" />
-          <g fill="#6f7e44" opacity=".5">
-            {grass.map((g, i) => (
-              <circle key={i} cx={g.cx} cy={g.cy} r={g.r} />
-            ))}
-          </g>
           {/* back wall of cabin */}
           <rect x="0" y="0" width="1000" height="56" fill="var(--wood)" />
           <rect x="0" y="52" width="1000" height="8" fill="var(--wood-dk)" />
-          {/* stone path */}
-          <rect x="460" y="56" width="80" height="484" fill="#cbb98c" opacity=".7" />
-          <g fill="#bfa97a">
-            <rect x="468" y="80" width="64" height="26" rx="5" />
-            <rect x="468" y="120" width="64" height="26" rx="5" />
-            <rect x="468" y="160" width="64" height="26" rx="5" />
-          </g>
           {/* fence border */}
           <g fill="#8c6038">
             <rect x="8" y="60" width="8" height="470" />
             <rect x="984" y="60" width="8" height="470" />
           </g>
-          {/* beds */}
-          {beds.map((b, i) => (
-            <g
-              key={i}
-              style={{ cursor: "pointer" }}
-              className="hot"
-              onClick={() => tend(i)}
-            >
-              <rect x={b.x} y={b.y} width="220" height="150" rx="10" fill="#7a5230" />
-              <rect x={b.x} y={b.y} width="220" height="12" rx="6" fill="#8c6038" />
-              <g stroke="#5e3d22" strokeWidth="3">
-                <line x1={b.x + 16} y1={b.y + 40} x2={b.x + 204} y2={b.y + 40} />
-                <line x1={b.x + 16} y1={b.y + 75} x2={b.x + 204} y2={b.y + 75} />
-                <line x1={b.x + 16} y1={b.y + 110} x2={b.x + 204} y2={b.y + 110} />
+          {/* potting shelf */}
+          <rect x="40" y="488" width="920" height="14" rx="4" fill="var(--wood)" />
+          <rect x="40" y="500" width="920" height="6" fill="var(--wood-dk)" />
+
+          {/* BET garden — beds grow with real kg */}
+          {beds.map((stage, i) => {
+            const { cx, cy } = bedPos(i);
+            const sp = speciesForBed(i);
+            return (
+              <g key={`bed-${i}`}>
+                <rect x={cx - 74} y={cy - 30} width="148" height="92" rx="10" fill="#7a5230" />
+                <rect x={cx - 74} y={cy - 30} width="148" height="10" rx="5" fill="#8c6038" />
+                <g transform={`translate(${cx} ${cy + 54}) scale(1.25)`}>
+                  <PlantArt speciesId={sp.id} stage={stage} keyBase={`bed-${i}`} />
+                </g>
+                <text x={cx - 66} y={cy + 56} fontSize="12.5" fill="#f3e7cf" fontFamily="Hanken Grotesk" fontWeight="600">
+                  {stageLabel(stage)}
+                </text>
               </g>
-              {SPOTS.map((sp, j) =>
-                j <= b.g ? (
-                  <g key={j} transform={`translate(${b.x + sp[0]} ${b.y + sp[1]}) scale(1.1)`}>
-                    <Plant stage={b.g} colorIndex={i} keyBase={`${idBase}-${i}-${j}`} />
-                  </g>
-                ) : null,
-              )}
-              <text
-                x={b.x + 12}
-                y={b.y + 140}
-                fontSize="13"
-                fill="#f3e7cf"
-                fontFamily="Hanken Grotesk"
-                fontWeight="600"
+            );
+          })}
+
+          {/* TENDED garden — pots you grow with soft currency */}
+          {tended.map((p, i) => {
+            const px = potX0 + i * potGap;
+            const sp = speciesById(p.species);
+            const full = p.stage >= MAX_STAGE;
+            return (
+              <g
+                key={p.id}
+                className={full ? undefined : "hot"}
+                style={{ cursor: full ? "default" : "pointer" }}
+                onClick={() => onTend(p, px, potY - 30)}
               >
-                {STAGE_LABEL[Math.min(3, b.g)]}
-              </text>
-            </g>
-          ))}
+                {/* plant rises out of the pot */}
+                <g transform={`translate(${px} ${potY - 6}) scale(1.05)`}>
+                  <PlantArt speciesId={sp.id} stage={p.stage} keyBase={`pot-${p.id}`} />
+                </g>
+                {/* terracotta pot */}
+                <path d={`M${px - 18} ${potY - 8} L${px + 18} ${potY - 8} L${px + 13} ${potY + 22} L${px - 13} ${potY + 22} Z`} fill="#b5652f" />
+                <rect x={px - 21} y={potY - 12} width="42" height="8" rx="2" fill="#c47338" />
+              </g>
+            );
+          })}
         </svg>
+
         {floats.map((f) => (
           <div
             key={f.id}
@@ -138,34 +178,16 @@ export default function GardenScene() {
           </div>
         ))}
       </div>
+
       <div className="toolbar">
-        <button className="btn" onClick={waterAll}>
-          💧 Water the beds
+        <button className="btn" onClick={onPlant} disabled={busy}>
+          🌱 Plant a seed <span style={{ opacity: 0.8, fontWeight: 500 }}>({COST.plantSeed.water}💧)</span>
         </button>
-        <span className="hint">Tap a plot to tend it — water sprouts to grow them toward bloom.</span>
+        <span className="hint">
+          {msg ??
+            "Top beds grow as you lose real weight — they can't be rushed. Tap a potted plant to tend it with the resources you earn by logging."}
+        </span>
       </div>
     </>
-  );
-}
-
-function Plant({ stage, colorIndex, keyBase }: { stage: number; colorIndex: number; keyBase: string }) {
-  const leaves = Math.min(6, 2 + stage);
-  const els = [];
-  for (let k = 0; k < leaves; k++) {
-    const a = (k / leaves) * 360;
-    els.push(<ellipse key={`${keyBase}-l${k}`} cx="0" cy="-13" rx="6" ry="12" fill="var(--olive)" transform={`rotate(${a})`} />);
-  }
-  return (
-    <g>
-      {els}
-      {stage >= 3 ? (
-        <>
-          <circle r="9" fill={PLOT_COLORS[colorIndex % 4]} />
-          <circle r="3.5" fill="var(--gold)" />
-        </>
-      ) : (
-        <circle r="5" fill="#6f7e44" />
-      )}
-    </g>
   );
 }

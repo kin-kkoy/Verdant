@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline — Verdant</title>
+    <style>
+      :root { color-scheme: light dark; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: #faf3e6;
+        color: #3a2a1c;
+        padding: 24px;
+      }
+      .card {
+        max-width: 340px;
+        text-align: center;
+        background: #fffaf0;
+        border: 1px solid #f7eeda;
+        border-radius: 18px;
+        padding: 32px 28px;
+        box-shadow: 0 8px 30px rgba(58, 42, 28, 0.08);
+      }
+      .sprout { width: 56px; height: 56px; margin: 0 auto 16px; display: block; }
+      h1 { font-size: 1.35rem; margin: 0 0 8px; font-weight: 600; }
+      p { margin: 0; line-height: 1.5; opacity: 0.8; font-size: 0.95rem; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #201810; color: #f0e6d8; }
+        .card { background: #2a2015; border-color: #3a2c1c; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <svg class="sprout" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g transform="translate(4 4)">
+          <path d="M12 21V12" stroke="#c2632b" stroke-width="2.4" stroke-linecap="round" />
+          <path d="M12 13c-4 0-6.5-2.5-6.5-6.5C9.5 6.5 12 9 12 13z" fill="#c2632b" />
+          <path d="M12 11c0-3.4 2.3-5.8 5.8-5.8C17.8 8.6 15.5 11 12 11z" fill="#d4953a" />
+        </g>
+      </svg>
+      <h1>You're offline</h1>
+      <p>Verdant needs a connection to load fresh pages. Check your network and try again.</p>
+    </div>
+  </body>
+</html>
