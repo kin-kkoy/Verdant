@@ -25,10 +25,10 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
 - [x] **Exercise tags as the workout source:** RESOLVED in T2 — `workoutsForDay` takes the MAX of
       distinct exercise cards logged that day and `countExerciseTags(logs.tags)`, so the tag path
       still scores pre-T2 days. Don't remove it.
-- [ ] **Workout points can exceed a target that excludes them.** If someone turns workouts off but
-      still logs cards, those points count toward a target that no longer includes them, so the
-      level caps at 4 early. Benign (you did more than your own bar) and the cap contains it —
-      noted so nobody "fixes" it by accident.
+- [x] **Workout points exceeding a target that excludes them:** FIXED 2026-09-02 —
+      `effectiveTrackers` in `activity.ts` widens a single day's target to cover any component the
+      user actually logged. Logging work you've switched off earns the points but also raises that
+      day's bar, so it can't hand out a free full square.
 - [ ] **`public/exercises/` is ~5 MB of committed PNGs.** Fine for git and for Vercel, and they're
       fetched per-exercise on demand so a phone never downloads all of it. Regenerate with
       `npm run exercises <source-dir>` if the art is ever replaced.

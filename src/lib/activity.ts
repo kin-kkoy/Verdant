@@ -77,9 +77,26 @@ export function targetPoints(t: Trackers): number {
   return Math.max(1, 1 + 1 + meals + (t.tracksWorkouts ? MAX_WORKOUTS : 0));
 }
 
+/**
+ * The target for ONE day, widened to include anything the user actually did.
+ *
+ * Without this, logging a component you've switched off scores points against a
+ * target that excludes them — so a workouts-off user who logs two workouts hits
+ * the brightest square on work their own card never asked for. Widening the
+ * target for that day keeps the ratio honest: you get credit for the work, but
+ * you also have to have done the rest of your day to fill the square.
+ */
+function effectiveTrackers(a: DayActivity, t: Trackers): Trackers {
+  const meals = Math.min(MAX_MEALS, Math.max(0, Math.floor(a.meals)));
+  return {
+    mealsPerDay: t.mealsPerDay ?? (meals > 0 ? meals : null),
+    tracksWorkouts: t.tracksWorkouts || a.workouts > 0,
+  };
+}
+
 /** 0 (nothing logged) … 4 (a complete day for this user). */
 export function level(a: DayActivity, t: Trackers = DEFAULT_TRACKERS): number {
   const p = points(a);
   if (p <= 0) return 0;
-  return Math.min(MAX_LEVEL, Math.ceil((MAX_LEVEL * p) / targetPoints(t)));
+  return Math.min(MAX_LEVEL, Math.ceil((MAX_LEVEL * p) / targetPoints(effectiveTrackers(a, t))));
 }

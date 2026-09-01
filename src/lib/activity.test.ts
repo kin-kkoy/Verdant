@@ -56,6 +56,16 @@ describe("targetPoints", () => {
     expect(targetPoints({ mealsPerDay: 2, tracksWorkouts: false })).toBe(4);
   });
 
+  it("widens the target for work the user did anyway", () => {
+    const off: Trackers = { mealsPerDay: null, tracksWorkouts: false };
+    // Logging workouts you've switched off must not hand you a free full square:
+    // the target widens to include them, so the rest of the day still has to happen.
+    expect(level(day({ workouts: 2 }), off)).toBe(2);
+    expect(level(day({ weighed: true, checkedIn: true, workouts: 2 }), off)).toBe(4);
+    // ...and a day with no workouts is unaffected by the widening.
+    expect(level(day({ weighed: true, checkedIn: true }), off)).toBe(4);
+  });
+
   it("drops by MAX_WORKOUTS when a user opts out of workouts", () => {
     // Someone who only diets must still be able to reach the brightest square.
     expect(targetPoints({ mealsPerDay: null, tracksWorkouts: false })).toBe(2);
