@@ -1,10 +1,11 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, gardens, logs, planItems, users, weighIns } from "./db/schema";
-import type { TendedPlant } from "./db/schema";
-import { relativeFromNow, todaySG, weekStartSG } from "./date";
+import { accessRequests, checkins, diaryEntries, logs, planItems, profileInvites, users, weighIns } from "./db/schema";
+import type { ProfileVisibility } from "./db/schema";
+import { addDaysIso, dayNumber, relativeFromNow, todaySG, weekStartSG } from "./date";
 import { daysIn, lostKg, progressPct, round1, streakDays } from "./stats";
-import { betGardenStages, bloomBalance, deriveBlooms } from "./economy";
+import { DEFAULT_TRACKERS, EMPTY_DAY, level, points, type DayActivity, type Trackers } from "./activity";
+import { countExerciseTags } from "./tags";
 
 export type WeightPoint = { day: string; weight: number };
 
@@ -36,7 +37,14 @@ export type Standing = {
   goalKg: number | null;
   streak: number;
   latestWeighInDay: string | null;
+  /** Consistency board: days with any activity in the trailing 30-day window. */
+  activeDays30: number;
+  /** Total activity points over the same window (the tie-breaker). */
+  points30: number;
 };
+
+/** Days in the trailing window the consistency board ranks on. */
+export const STANDINGS_WINDOW = 30;
 
 /** Load everything the landing page needs for one official user. */
 export async function getDashboard(userId: number): Promise<Dashboard | null> {
@@ -90,29 +98,73 @@ export async function getDashboard(userId: number): Promise<Dashboard | null> {
   };
 }
 
-/** Standings for all official users — derived ONLY from real weigh-ins (the firewall). */
+/**
+ * Standings for all official users.
+ *
+ * Ranked by CONSISTENCY (active days, then points, then streak) — the fair
+ * measure once workouts are in play, since someone lifting can gain weight while
+ * getting leaner. The kilogram figures come along for the `/standings?view=kg`
+ * board and are still derived ONLY from real weigh-ins (the firewall).
+ *
+ * Four queries total, grouped in memory — not one per user.
+ */
 export async function getStandings(): Promise<Standing[]> {
-  const allUsers = await db.select().from(users).orderBy(asc(users.id));
   const today = todaySG();
+  const windowFrom = addDaysIso(today, -(STANDINGS_WINDOW - 1));
 
-  const rows: Standing[] = [];
-  for (const user of allUsers) {
-    const wis = await db
-      .select()
+  const [allUsers, allWeighIns, allCheckins, windowLogs] = await Promise.all([
+    db.select().from(users).orderBy(asc(users.id)),
+    db
+      .select({ userId: weighIns.userId, day: weighIns.day, weightKg: weighIns.weightKg })
       .from(weighIns)
-      .where(eq(weighIns.userId, user.id))
-      .orderBy(asc(weighIns.day));
-    const cis = await db
-      .select({ day: checkins.day })
-      .from(checkins)
-      .where(eq(checkins.userId, user.id));
+      .orderBy(asc(weighIns.day)),
+    db.select({ userId: checkins.userId, day: checkins.day }).from(checkins),
+    db
+      .select({ userId: logs.userId, day: logs.day, tags: logs.tags })
+      .from(logs)
+      .where(gte(logs.day, windowFrom)),
+  ]);
+
+  const group = <T extends { userId: number }>(rows: T[]) => {
+    const m = new Map<number, T[]>();
+    for (const r of rows) {
+      const list = m.get(r.userId);
+      if (list) list.push(r);
+      else m.set(r.userId, [r]);
+    }
+    return m;
+  };
+  const weighInsBy = group(allWeighIns);
+  const checkinsBy = group(allCheckins);
+  const logsBy = group(windowLogs);
+
+  const rows: Standing[] = allUsers.map((user) => {
+    const wis = weighInsBy.get(user.id) ?? [];
+    const cis = checkinsBy.get(user.id) ?? [];
 
     const startWeight = Number(user.startWeight);
     const goalKg = user.goalKg == null ? null : Number(user.goalKg);
     const latest = wis.length ? Number(wis[wis.length - 1].weightKg) : null;
     const lost = lostKg(startWeight, latest);
 
-    rows.push({
+    // Activity over the trailing window, scored the same way as the graph.
+    const byDay = new Map<string, DayActivity>();
+    const touch = (day: string): DayActivity => {
+      let a = byDay.get(day);
+      if (!a) {
+        a = { ...EMPTY_DAY };
+        byDay.set(day, a);
+      }
+      return a;
+    };
+    for (const w of wis) if (w.day >= windowFrom) touch(w.day).weighed = true;
+    for (const c of cis) if (c.day >= windowFrom) touch(c.day).checkedIn = true;
+    for (const l of logsBy.get(user.id) ?? []) {
+      touch(l.day).workouts = countExerciseTags(l.tags);
+    }
+    const dayPoints = [...byDay.values()].map(points);
+
+    return {
       id: user.id,
       name: user.name,
       avatarColor: user.avatarColor,
@@ -124,12 +176,23 @@ export async function getStandings(): Promise<Standing[]> {
         today,
       ),
       latestWeighInDay: wis.length ? wis[wis.length - 1].day : null,
-    });
-  }
+      activeDays30: dayPoints.filter((n) => n > 0).length,
+      points30: dayPoints.reduce((n, p) => n + p, 0),
+    };
+  });
 
-  // Most lost first; the bet leader is rows[0].
-  return rows.sort((a, b) => b.lost - a.lost);
+  // Most consistent first; the leader is rows[0].
+  return rows.sort(
+    (a, b) =>
+      b.activeDays30 - a.activeDays30 || b.points30 - a.points30 || b.streak - a.streak,
+  );
 }
+
+/** Re-rank an existing standings list by kilograms lost (the second board). */
+export function byKilograms(rows: Standing[]): Standing[] {
+  return [...rows].sort((a, b) => b.lost - a.lost);
+}
+
 
 /**
  * The visitor teaser — static demo data matching the mockup. NOTHING here is
@@ -166,71 +229,249 @@ export function getVisitorDashboard(): Dashboard {
   };
 }
 
-// ---------- Garden (game layer, Phase 3) ----------
 
-export type GardenView = {
-  mode: "official" | "visitor";
-  currencies: { sun: number; water: number; compost: number };
-  pureBlooms: number;
-  bloomBalance: number;
-  /** BET garden: one growth stage (0..4) per bed, DERIVED from real kg (firewall read). */
-  betBeds: number[];
-  /** TENDED garden: pots grown from soft currencies (persisted; §4.4 decay in 3b). */
-  tended: TendedPlant[];
+// ---------- Profiles ----------
+
+export type ProfileUser = {
+  id: number;
+  name: string;
+  avatarColor: string;
+  /** Group-TZ day the account was created. */
+  joinedDay: string;
+  visibility: ProfileVisibility;
 };
 
-/** Ensure a garden row exists for the user (lazy create on first visit). */
-async function ensureGardenRow(userId: number) {
-  await db.insert(gardens).values({ userId }).onConflictDoNothing({ target: gardens.userId });
-  const [row] = await db.select().from(gardens).where(eq(gardens.userId, userId)).limit(1);
-  return row;
+function asVisibility(v: string): ProfileVisibility {
+  return v === "invited" ? "invited" : "everyone";
+}
+
+/** The public header of a profile page. Any signed-in user may read any profile. */
+export async function getProfileUser(userId: number): Promise<ProfileUser | null> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      avatarColor: users.avatarColor,
+      createdAt: users.createdAt,
+      profileVisibility: users.profileVisibility,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    avatarColor: user.avatarColor,
+    joinedDay: todaySG(new Date(user.createdAt)),
+    visibility: asVisibility(user.profileVisibility),
+  };
 }
 
 /**
- * Load the garden for one official user. The BET garden + Blooms are DERIVED from
- * real weigh-ins (the firewall truth — no game state can alter them); only soft
- * currencies + tended pots are read from storage. (Idle/decay arrives in Phase 3b.)
+ * May `viewerId` open `owner`'s profile?
+ *
+ * You can always see your own. Otherwise "everyone" is open to any signed-in
+ * user, and "invited" needs a `profile_invites` row. There is no owner/admin
+ * bypass — a lock that the host can peek through isn't much of a lock.
  */
-export async function getGarden(userId: number): Promise<GardenView | null> {
-  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  if (!user) return null;
+export async function canViewProfile(
+  owner: ProfileUser,
+  viewerId: number,
+): Promise<boolean> {
+  if (owner.id === viewerId) return true;
+  if (owner.visibility === "everyone") return true;
+  const [row] = await db
+    .select({ id: profileInvites.id })
+    .from(profileInvites)
+    .where(and(eq(profileInvites.ownerId, owner.id), eq(profileInvites.viewerId, viewerId)))
+    .limit(1);
+  return !!row;
+}
 
-  const wis = await db
-    .select({ weightKg: weighIns.weightKg })
-    .from(weighIns)
-    .where(eq(weighIns.userId, userId));
-  const series = wis.map((w) => Number(w.weightKg));
-  const startWeight = Number(user.startWeight);
-  const goalKg = user.goalKg == null ? null : Number(user.goalKg);
-  const latest = series.length ? series[series.length - 1] : null;
-  const lost = lostKg(startWeight, latest);
+/** The user ids `ownerId` has invited into their profile. */
+export async function getProfileInvites(ownerId: number): Promise<number[]> {
+  const rows = await db
+    .select({ viewerId: profileInvites.viewerId })
+    .from(profileInvites)
+    .where(eq(profileInvites.ownerId, ownerId));
+  return rows.map((r) => r.viewerId);
+}
 
-  const { pureBlooms, earnedBlooms } = deriveBlooms(series, startWeight);
-  const row = await ensureGardenRow(userId);
+/** Everyone with an account, for the profile directory. */
+export async function listProfileUsers(): Promise<ProfileUser[]> {
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      avatarColor: users.avatarColor,
+      createdAt: users.createdAt,
+      profileVisibility: users.profileVisibility,
+    })
+    .from(users)
+    .orderBy(asc(users.id));
+  return rows.map((u) => ({
+    id: u.id,
+    name: u.name,
+    avatarColor: u.avatarColor,
+    joinedDay: todaySG(new Date(u.createdAt)),
+    visibility: asVisibility(u.profileVisibility),
+  }));
+}
+
+// ---------- Activity calendar (the contribution graph) ----------
+
+export type CalendarDay = {
+  day: string; // group-TZ "YYYY-MM-DD"
+  points: number;
+  level: number; // 0 = empty … 4 = a complete day for this user
+};
+
+export type ActivityCalendar = {
+  mode: "official" | "visitor";
+  /** Oldest → newest, one entry per day in the window (gaps filled with zeroes). */
+  days: CalendarDay[];
+  /** Inclusive window bounds, so the graph knows where to start its grid. */
+  from: string;
+  to: string;
+  activeDays: number;
+  totalPoints: number;
+  currentStreak: number;
+  longestStreak: number;
+};
+
+/** Longest run of consecutive days with any points, over an ordered day list. */
+function longestRun(days: CalendarDay[]): number {
+  let best = 0;
+  let run = 0;
+  let prevN: number | null = null;
+  for (const d of days) {
+    const n = dayNumber(d.day);
+    if (d.points > 0) {
+      run = prevN != null && n === prevN + 1 ? run + 1 : 1;
+      if (run > best) best = run;
+    } else {
+      run = 0;
+    }
+    prevN = n;
+  }
+  return best;
+}
+
+function summarize(
+  mode: "official" | "visitor",
+  byDay: Map<string, DayActivity>,
+  trackers: Trackers,
+  from: string,
+  to: string,
+): ActivityCalendar {
+  const days: CalendarDay[] = [];
+  for (let d = from; dayNumber(d) <= dayNumber(to); d = addDaysIso(d, 1)) {
+    const a = byDay.get(d) ?? EMPTY_DAY;
+    days.push({ day: d, points: points(a), level: level(a, trackers) });
+  }
+
+  // Current streak: consecutive active days back from today (or yesterday —
+  // today isn't over until midnight, same rule as streakDays in stats.ts).
+  let currentStreak = 0;
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (days[i].points > 0) currentStreak++;
+    else if (i < days.length - 1) break; // an empty day ends it, unless it's today
+  }
 
   return {
-    mode: "official",
-    currencies: { sun: row.sun, water: row.water, compost: row.compost },
-    pureBlooms,
-    bloomBalance: bloomBalance(earnedBlooms, row.bloomSpent),
-    betBeds: betGardenStages(lost, goalKg),
-    tended: row.plantState ?? [],
+    mode,
+    days,
+    from,
+    to,
+    activeDays: days.filter((d) => d.points > 0).length,
+    totalPoints: days.reduce((n, d) => n + d.points, 0),
+    currentStreak,
+    longestStreak: longestRun(days),
   };
 }
 
-/** Visitor teaser — in-memory only, nothing persisted (NOTES hard rule). */
-export function getVisitorGarden(): GardenView {
-  return {
-    mode: "visitor",
-    currencies: { sun: 40, water: 60, compost: 25 },
-    pureBlooms: 4,
-    bloomBalance: 4,
-    betBeds: betGardenStages(2.3, 5), // matches the visitor dashboard's 2.3 kg lost
-    tended: [
-      { id: "demo-1", species: "aster", stage: 3, wilt: 0, plantedAt: "2026-06-10" },
-      { id: "demo-2", species: "daisy", stage: 2, wilt: 0, plantedAt: "2026-06-14" },
-    ],
+/**
+ * A year of day-squares for one official user.
+ *
+ * Three window-scoped queries, merged in memory — deliberately NOT one query per
+ * day. (`getStandings` already has an N+1 loop; this must not add to it.)
+ *
+ * Phase 1 sources: weigh-ins, check-ins, and the day's exercise tags. Phase 2
+ * swaps `workouts` to real workout sessions and fills in `meals`.
+ */
+export async function getActivityCalendar(
+  userId: number,
+  windowDays = 365,
+): Promise<ActivityCalendar | null> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return null;
+
+  const to = todaySG();
+  const from = addDaysIso(to, -(windowDays - 1));
+
+  const [wis, cis, lgs] = await Promise.all([
+    db
+      .select({ day: weighIns.day })
+      .from(weighIns)
+      .where(and(eq(weighIns.userId, userId), gte(weighIns.day, from))),
+    db
+      .select({ day: checkins.day })
+      .from(checkins)
+      .where(and(eq(checkins.userId, userId), gte(checkins.day, from))),
+    db
+      .select({ day: logs.day, tags: logs.tags })
+      .from(logs)
+      .where(and(eq(logs.userId, userId), gte(logs.day, from))),
+  ]);
+
+  const byDay = new Map<string, DayActivity>();
+  const touch = (day: string): DayActivity => {
+    let a = byDay.get(day);
+    if (!a) {
+      a = { ...EMPTY_DAY };
+      byDay.set(day, a);
+    }
+    return a;
   };
+  for (const w of wis) touch(w.day).weighed = true;
+  for (const c of cis) touch(c.day).checkedIn = true;
+  for (const l of lgs) touch(l.day).workouts = countExerciseTags(l.tags);
+
+  const trackers: Trackers = {
+    mealsPerDay: user.mealsPerDay,
+    tracksWorkouts: DEFAULT_TRACKERS.tracksWorkouts,
+  };
+  return summarize("official", byDay, trackers, from, to);
+}
+
+/**
+ * Visitor teaser — a deterministic sample year so the logged-out hero still
+ * shows a real-looking graph. Nothing here is persisted (NOTES hard rule).
+ */
+export function getVisitorActivityCalendar(windowDays = 365): ActivityCalendar {
+  const to = todaySG();
+  const from = addDaysIso(to, -(windowDays - 1));
+
+  // Deterministic pseudo-random so the demo graph is stable within a day.
+  let seed = dayNumber(to) >>> 0;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  const byDay = new Map<string, DayActivity>();
+  for (let d = from; dayNumber(d) <= dayNumber(to); d = addDaysIso(d, 1)) {
+    const r = rand();
+    if (r < 0.28) continue; // a rest day
+    byDay.set(d, {
+      weighed: true,
+      checkedIn: r > 0.4,
+      meals: 0,
+      workouts: r > 0.82 ? 2 : r > 0.62 ? 1 : 0,
+    });
+  }
+  return summarize("visitor", byDay, DEFAULT_TRACKERS, from, to);
 }
 
 // ---------- Journal (per-user) ----------
@@ -385,6 +626,8 @@ export function getVisitorStandings(): Standing[] {
       goalKg: 5,
       streak: 9,
       latestWeighInDay: "2026-06-15",
+      activeDays30: 24,
+      points30: 71,
     },
     {
       id: -2,
@@ -395,6 +638,8 @@ export function getVisitorStandings(): Standing[] {
       goalKg: 5,
       streak: 5,
       latestWeighInDay: "2026-06-17",
+      activeDays30: 19,
+      points30: 52,
     },
   ];
 }

@@ -2,6 +2,48 @@
 
 _Shared tracker across all agents/sessions. Newest log entry on top. Keep this current._
 
+## Log (2026-09-01) — Invite-only profiles
+- **`users.profile_visibility`** (`everyone` | `invited`, default `everyone`) + a **`profile_invites`**
+  table (owner → viewer, one-way, no acceptance step). Migration **`0010`**, additive, applied to Neon.
+- **Scope decision:** the lock covers the profile PAGE only. `/standings` stays fully public —
+  it's the shared competition and everyone opted into that.
+- Uninvited visitors get `LockedProfile`: the owner's name + avatar chip (they clicked through
+  from Standings and already know whose it is), one of 15 lines from **`src/lib/teases.ts`**
+  picked fresh per visit, and a plain "invite-only" note. No owner/admin bypass — a lock the
+  host can peek through isn't one.
+- **`ProfileAccess`** (own profile only): Everyone / Only-people-I-invite toggle plus per-person
+  invite chips, optimistic with rollback, via `setProfileVisibility` / `setProfileInvite`.
+- Access rules verified against the live DB across all four transitions (default → locked →
+  invited → revoked → restored); DB left back on `everyone` with no invites. Build clean
+  (14 routes), tsc clean, 32 tests pass.
+- **Left alone:** the six activity tags. `Clean eating` / `Water` / `Sleep` are still stored in
+  `logs.tags` and shown back on the check-in card + Journal, but feed NOTHING — only
+  `EXERCISE_TAGS` (Workout/Walk/Yoga) score. Owner's call to keep them for now; phase 2's meal
+  logging supersedes `Clean eating`.
+
+## Log (2026-09-01) — Phase 1 of the tracker overhaul: game stripped, contribution graph shipped
+- **The app is now an activity tracker, not a weight bet.** The cozy-cabin hero scene is replaced
+  by a **GitHub-style contribution graph** — a year of day-squares that brighten with how much of
+  your day you logged. New **`/profile/[id]`** routes (any signed-in user can read any profile;
+  visitors are redirected to `/login`). `/standings` now ranks by **consistency** (active days in
+  the trailing 30, then points, then streak) with **kilograms** kept as a second view (`?view=kg`).
+- **Scoring — `src/lib/activity.ts`** (pure, 14 tests). Two rules: points (0–7) and shades (0 plus
+  4 fills) are separate; and **level is points against the user's OWN target**, so a dieter and a
+  lifter can both reach the brightest square by completing their own card. Phase-1 sources are
+  weigh-ins, check-ins and the day's exercise tags — `meals` stays 0 and `users.meals_per_day`
+  stays null until Phase 2, which keeps meals out of the target so the top shade is reachable now.
+  `workouts` is a COUNT, not a flag: a tag only exists on a day you also checked in, so a boolean
+  would skip level 3 entirely.
+- **Signed goals.** `goal_kg` may now be negative ("gain 3 kg"); `progressPct` scores `lost/goal`
+  with matching signs and the goal modal has a lose/gain toggle. Bulking counts as progress.
+- **Stripped:** `/garden`, `/stable`, `GardenScene`, `StableScene`, `CabinScene`, `lib/garden/*`,
+  `economy.ts` (+ its 16 tests), the scene CSS and tokens. Migration **`0009`** drops the `gardens`
+  table (applied to Neon) and adds `users.meals_per_day`. `FallingLeaves` and the warm palette stay.
+- **`getStandings` no longer does N+1** — four grouped queries instead of two per user.
+- Build clean (14 routes), tsc clean, **32 tests pass**, all routes 200 (`/garden` + `/stable` 404).
+- **Next (Phase 2):** meal logging (protein/calories) and workout cards (exercise → sets → reps),
+  wired into the `meals` / `workouts` slots that already exist in the scorer.
+
 ## Log (2026-07-15) — PWA + push notifications built (not yet activated)
 - **PWA (Chunk A):** installable, offline-capable app shell — manifest, maskable icons,
   auth-safe service worker, offline page. Reuses the whole Next.js stack; Android install ready.
@@ -39,13 +81,22 @@ _Shared tracker across all agents/sessions. Newest log entry on top. Keep this c
       to a data URL in Postgres for now) with add modal + delete; per-user planner with interactive
       24h schedule (click-add, drag-move, rename, delete, auto-scroll to first block, expand toggle)
       + derived week-at-a-glance. _(Photos → Vercel Blob is a deferred swap; one util + one line.)_
-- [~] **Phase 3 — Game layer (garden-first), IN PROGRESS.** Plan approved 2026-06-18.
+- [x] **Phase 3 — Game layer (garden-first). REMOVED 2026-09-01** — the app pivoted to workout
+      tracking; the garden/stable/economy were stripped in the Phase-1 overhaul above. Kept here
+      for history only. _Original plan:_
       Sub-phases: **3a** foundations (gardens table, `economy.ts` earn + derived blooms,
       asset seam, bet plants from real kg, currency HUD) → **3b** idle + meaningful decay →
       **3c** customization/skins + automation tree + Bloom spend sinks. Companion + marathon
       pushed to **Phase 4**. Art is **not locked** → built behind an asset-agnostic seam
       (parametric SVG generator default; bundled CC0/own assets override by manifest).
-- [ ] **Phase 4 (later):** companion + marathon (Stable), garden visiting/gifts.
+- [x] **Phase 4 (companion + marathon):** dropped along with the game layer.
+
+### Tracker overhaul (current track)
+- [x] **T1 — Strip the game + contribution graph + profiles + consistency standings.** Done 2026-09-01.
+- [ ] **T2 — Meal logging** (per-meal protein/calorie entries) → fills the `meals` slot in
+      `activity.ts` and turns on `users.meals_per_day` per user.
+- [ ] **T3 — Workout cards** (exercise → sets → reps) → replaces exercise tags as the `workouts`
+      source; tags stay as the fallback for days logged before it shipped.
 
 - **2026-06-18** — **Phase 3a built & verified locally (game-layer foundations).** New
   `gardens` table (migration `0006`, applied to Neon — additive, no firewall table touched).

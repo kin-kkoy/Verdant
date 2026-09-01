@@ -64,6 +64,20 @@
       "when": 1784050183343,
       "tag": "0008_hot_randall_flagg",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788272585891,
+      "tag": "0009_smiling_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788274715710,
+      "tag": "0010_cool_venom",
+      "breakpoints": true
     }
   ]
 }

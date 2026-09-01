@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Verdant",
     short_name: "Verdant",
-    description: "A private cozy-cabin tracker for a friendly 5 kg weight-loss bet.",
+    description: "A private workout and body tracker — every square is a day you showed up.",
     start_url: "/",
     scope: "/",
     id: "/",

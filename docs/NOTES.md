@@ -1,33 +1,63 @@
 # Verdant — Durable Notes (must-know for all agents)
 
-_The things that aren't obvious from the code. Keep it tight. Deep detail lives in
-`BUILD-PLAN.md` (architecture) and `prototypes/SPECS.md` (full feature design)._
+_The things that aren't obvious from the code. Keep it tight. `BUILD-PLAN.md` and
+`prototypes/SPECS.md` describe the app's earlier life as a cabin/garden game — history, not
+instructions (see "What changed" below)._
 
 ## The product
-- Private bet tracker for 2 friends (Test & Mei), expandable to ~5. First to lose **5 kg** wins.
-- Cozy autumn **cabin homestead** theme. Not monetized. Free tiers only. No hard deadline
-  (September/autumn is a soft, motivational target — never hardcode it).
+- Private body & workout tracker for ~2–5 friends. Centrepiece: a **GitHub-style contribution
+  graph** — a year of day-squares that brighten with how much of your day you logged.
+- A friendly competition runs alongside it, ranked on **consistency**; kilograms are a second,
+  informational board. Not monetized. Free tiers only. No hard deadline.
+- Warm autumn palette (inherited), but the cabin/garden/stable framing is gone.
 
-## ⚠️ THE FIREWALL (non-negotiable)
-- **Real kilograms decide the bet.** Standings = actual logged weight, full stop.
-- The garden, companion, economy, and races are flavor/motivation — they must **never**
-  buy, fake, or decide the bet. This keeps it honest (trust-based, no money).
+## What changed (2026-09-01)
+The app pivoted from a cozy-cabin **5 kg weight-loss bet with a garden game** to an activity
+tracker. Deleted: `/garden`, `/stable`, the three scene components, `lib/garden/*`, `economy.ts`,
+and the `gardens` table (migration `0009`). Kept: the palette, typography, falling leaves, daily
+quote, Journal, Planner, the claim-code auth flow.
+
+## ⚠️ NOTHING COSMETIC DECIDES A RANK (non-negotiable)
+- Boards derive **only** from real logged data — weigh-ins, check-ins, and (from T2/T3) meals
+  and workouts. Nothing decorative or gamified may buy, fake, or alter a rank.
+- This is the same rule the old "firewall" enforced; only the inputs widened. It keeps the
+  competition honest (trust-based, no money).
+
+## ⚠️ A COMPLETE DAY IS RELATIVE TO THE USER (non-negotiable)
+- Level 4 means "you did **your** card", never "you did the most possible". Scoring is
+  `points / targetPoints`, where the target is derived from the trackers that user actually
+  uses — so a dieter and someone bulking can both reach the brightest square.
+- All of it lives in **`src/lib/activity.ts`** (pure, unit-tested). Never inline scoring
+  elsewhere; add a component there and everything downstream follows.
+- Points run 0–7 internally; the graph draws **4 filled shades plus empty**. Don't add shades —
+  the eye can't separate more than that.
+- `workouts` is a **count, not a flag**. In T1 the source is the day's exercise tags, and a tag
+  can only exist on a day you also checked in — a boolean would make points jump 2 → 4 and leave
+  the second-brightest shade unreachable. This was caught by rendering it, not by reading it.
+- `users.meals_per_day` is **null** for everyone until T2 ships. Null deliberately excludes
+  meals from the target; setting it before meal logging exists would make the top shade
+  unreachable overnight.
 
 ## Visual direction (locked)
-- **Cozy cabin / autumn**, premium & flat: warm palette, hairline borders, one accent
-  (burnt orange), Hanken Grotesk + Instrument Serif (italic accents).
-- **Light + dark mode** — the cabin scene shifts day↔night (moon, stars, glowing windows).
+- **Warm autumn**, premium & flat: warm palette, hairline borders, one accent (burnt orange),
+  Hanken Grotesk + Instrument Serif (italic accents).
+- **Light + dark mode** — every colour is a CSS custom property on `:root` with a
+  `[data-theme="dark"]` override. Graph shades are `--sq-0 … --sq-4`.
 - Rules: **NO decorative gradients** (flat fills only), no over-rounded/cluttered cards,
   clean buttons (not glossy pills), and it **must not be laggy** (no heavy blur/animated gradients).
-- Canonical reference: `prototypes/premium-mockup.html`. The pixel and botanical-serif looks are dead ends.
+- **Charts are hand-written inline SVG** — the contribution graph and the weight chart both.
+  No chart library; don't add one.
+- `prototypes/premium-mockup.html` is where the CSS was ported from. Its palette and component
+  shapes still apply; its cabin/garden/stable scenes do not.
 
 ## Information architecture
-- **Landing (one scroll):** navbar → hero = cabin scene → 4-stat row (Lost / Goal / Streak /
-  Days in) → **check-in input** → progress ("season so far") → footer.
-- **Navbar:** Journal · Planner · Standings (+ light/dark toggle + Check in).
-- **Scene-only pages (NOT in navbar):** click the garden's sign → Garden page; click the
-  stable's sign → Stable page. **Both are top-down 2D** (isometric was tried and dropped).
-  Each has a back button. The cabin itself is decorative for now.
+- **Landing (one scroll):** navbar → hero (daily quote + falling leaves) → **contribution
+  graph** → 4-stat row (Active days / Streak / kg / Days in) → **check-in input** →
+  progress ("season so far") → footer.
+- **Navbar:** Profile · Journal · Planner · Standings (+ light/dark toggle + Check in).
+- **`/profile/[id]`** — name, avatar chip, the graph, four totals, and links to everyone else.
+  `/profile` redirects to your own. Signed-in only.
+- **`/standings`** — consistency board by default, `?view=kg` for kilograms.
 - Journal: first card is an **"Add entry"** card (same shape as the rest) → opens an add modal.
 - Planner: a week-at-a-glance row **+** an interactive day×time **schedule** (tap empty slot to
   add a block, drag blocks to rearrange — must stay touch-friendly for iPad).
@@ -36,8 +66,7 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
 ## Stack & infra
 - **Next.js** (App Router) on **Vercel** (Hobby, free) · **Neon** Postgres (free) · **Auth.js** ·
   **Vercel Blob** (photos) · **PWA**. Cost target: **$0**. (Render was rejected — cold starts.)
-- Economy (when built) must be **server-authoritative** (compute idle/decay from `last_seen`;
-  never trust the client clock). Pick **one group timezone** for streak rollover — decide early.
+- Group timezone for streak rollover is **Asia/Singapore**, fixed in `src/lib/date.ts`.
 
 ## Auth model
 - **2 official accounts** at launch: chosen **name + password** (+ optional Google for quick
@@ -48,56 +77,34 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
   button lets a visitor ask to become official.
 - **Persistent stay-logged-in** (long session), like YouTube/Claude. No open public signup.
 
-## Game layer (Phase 3 — IN PROGRESS, garden-first; companion → Phase 4)
-- Garden = weight progress (plants grow as you lose). Stable companion + end-of-season
-  **marathon** are **deferred to Phase 4**. Full design ref: `SPECS.md §4`.
-- **Two-layer garden** (the key design — honors meaningful decay AND the firewall):
-  - **Bet garden** — core beds; growth **DERIVED from real kg** (read of the truth),
-    **never dies**, only droops cosmetically when neglected → revives on check-in.
-    Layout: **5 beds, one blooms per kg, scaled to the user's `goal_kg`** (no-goal accounts
-    get an open-ended garden, no bloom cap). No storage — computed from `weigh_ins`.
-  - **Tended garden** — extra pots grown from soft currencies + idle; carries the **full
-    §4.4 decay incl. death/regrow**. Decay only ever touches THESE + soft currencies.
-- **Economy lives in `src/lib/economy.ts`** (pure, unit-tested — the game's home, mirroring
-  how `stats.ts` is the firewall's home). One-way imports: economy → stats/date, never back.
-  - Soft currencies (Sun/Water/Compost) earned by logging (logging *is* earning; folded into
-    `checkInToday`/log actions). Tag→currency map: **Water currency** ← Workout/Walk/Yoga;
-    **Compost currency** ← Clean eating / Water(=hydration) / Sleep. *(Name collision: the
-    "Water" activity tag = hydration → Compost; the Water currency is exercise.)*
-  - **Bloom & Pure Bloom are DERIVED from kg truth, not stored.** Pure Blooms = monotonic
-    `floor(max_kg_lost_ever / 0.5)`; spendable balance = `earned − bloom_spent` (store only
-    `bloom_spent`). Spending never moves kg/standings/Pure Blooms.
-- **`gardens` table** (migration `0006`, additive — touches no firewall table):
-  `sun, water, compost, bloom_spent, skin jsonb, plant_state jsonb (tended pots only),
-  automation jsonb, last_seen`. `companions/gifts/races` NOT created yet (Phase 4).
-- **Server-authoritative** idle/decay computed from stored `last_seen` vs server `now`
-  (never the client clock). Visitor garden = in-memory demo only (no DB/localStorage).
-- Sub-phases: **3a** foundations (no decay) → **3b** idle + decay → **3c** skins + automation
-  + Bloom sinks. Check in at each boundary before building the next.
+## Profile visibility (decided 2026-09-01)
+- `users.profile_visibility` is `everyone` (default) or `invited`; `profile_invites` rows
+  (owner → viewer) are the allowlist. Invites are **one-way** — no acceptance step, no
+  notification; they only control what the viewer can open.
+- **The lock covers the profile PAGE only.** `/standings` stays fully public — it's the shared
+  competition and everyone opted into that. A locked person's active days and points are still
+  visible there, by design.
+- **No owner/admin bypass.** `OWNER_NAME` doesn't get to peek; a lock the host can see through
+  isn't a lock.
+- Uninvited visitors get the owner's name + avatar (they arrived from a named link) plus a random
+  line from `src/lib/teases.ts`, fresh per visit. The route is dynamic, so `Math.random()` at
+  render is fine — don't add seeding or storage.
 
-## Assets — strategy (decided 2026-06-18: asset-agnostic seam)
-- Art style is **NOT locked** (owner leans CC0 flat-vector > parametric generator > pixel,
-  and may supply **own assets**) → don't marry the economy to any art source.
-- **Asset-agnostic rendering seam:** game logic renders by **logical key** (`{species,stage}`,
-  decor, vessel); a **registry** resolves a key to a renderer. Default = **parametric SVG
-  generator** (`genPlant`+`SPECIES` in `src/lib/garden/plants.tsx`, fills with CSS palette
-  vars so light/dark is free, zero binary assets → self-host clean). **File override** =
-  manifest mapping a key to bundled assets under `public/garden/…` (`<species>/<stage>.svg|png`
-  + optional `-dark`). Resolution: file renderer → generator fallback. Swapping art edits a
-  manifest, never the game code. `CREDITS.md` added only if a CC-BY pack is bundled.
-- Still: **never ripped game art** (no real Stardew/Pokémon sprites). Prefer CC0; AI art only
-  as one-off decor accents (gnome/cat), never the core plants.
+## Check-in tags (state as of 2026-09-01)
+- Six tags: Workout, Walk, Yoga, Clean eating, Water, Sleep. Only the first three
+  (`EXERCISE_TAGS`) score; the other three are stored in `logs.tags` and shown back on the
+  check-in card and in the Journal, but **feed nothing**. Owner's explicit call to keep them.
+- T2's meal logging supersedes `Clean eating`. Revisit the set then rather than piecemeal.
 
 ## Planner schedule — build notes
 - 12-hour labels (`7 AM`), show **all 24 hours** (Google-Calendar style), **auto-scroll to the
   first hour that has a block** on open, scrollable with an **expand-to-full-day** toggle.
 
-## Assets (scene / game art)
-- Use **licensed** assets, never ripped game art (no actual Stardew/Pokémon sprites).
-- Prefer **CC0** (e.g. Kenney.nl) or **CC-BY** (credit in a `CREDITS.md`). AI-made art is OK
-  as a supplement (watch style consistency).
-- Premium **flat-vector** is preferred to match the look; free *pixel* packs are an option
-  only if the owner accepts pixel for the game scenes. Specific pack candidates: see chat history.
+## Assets
+- There is no bundled art. Every visual is inline SVG or CSS, filled from palette variables, so
+  light/dark is free and self-hosting stays clean. Keep it that way unless there's a real reason.
+- If art is ever added: **licensed only**, never ripped game art. Prefer CC0 (e.g. Kenney.nl) or
+  CC-BY with credit in a `CREDITS.md`.
 
 ## Journal design (decided 2026-06-17)
 - Purpose: **reflection + accountability + thoughts.** Per-user (private).
@@ -141,7 +148,8 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
 ## Real-app build conventions (Phase 0/1 — durable)
 - **"Today" is `todaySG()`** in `src/lib/date.ts` (fixed `Asia/Singapore`). NEVER use a bare
   `new Date()` for day/streak decisions. All `day` DB columns store this group-TZ calendar day.
-- **The firewall lives in `src/lib/stats.ts`** (`lostKg`/`streakDays`/`progressPct`) + `data.ts`
+- **Derivations live in `src/lib/stats.ts`** (`lostKg`/`streakDays`/`progressPct`) and
+  **`src/lib/activity.ts`** (the graph's scoring) + `data.ts`
   (`getStandings`). Standings derive ONLY from real weigh-ins. Keep game state out of these.
 - **Visitor mode** = not logged in → server passes `mode:'visitor'` + demo data; client cards
   keep state in React only and skip server actions. No `localStorage`/DB for visitor tracker
@@ -155,3 +163,20 @@ _The things that aren't obvious from the code. Keep it tight. Deep detail lives 
   dev-tooling only (vitest/esbuild/postcss) — don't `audit fix --force` (it downgrade-breaks).
 
 <!-- Add new durable decisions here. If it only matters to one session, it doesn't belong. -->
+
+## Goals are signed (decided 2026-09-01)
+- `users.goal_kg` may be **negative**, meaning "gain that many kg". `lostKg` is `start − latest`,
+  so it carries the same sign, and `progressPct` scores `lost / goal` with matching signs —
+  someone bulking toward −3 kg who is 1.5 kg heavier reads 50%, not 0.
+- The goal modal splits this into a lose/gain toggle plus a magnitude; only the signed value is
+  stored. `goal === 0` is rejected.
+
+## Standings ranking (decided 2026-09-01)
+- Default board sorts by `activeDays30`, then `points30`, then `streak`. Kilograms is a second
+  view (`?view=kg`), never the default.
+- Rationale: a scale can't tell muscle from anything else, so someone training hard can gain
+  weight while getting leaner. Consistency is the one measure that's fair whichever way a
+  person's weight is headed. Don't blend the two into one score — the weighting would be
+  arbitrary and arguable.
+- `getStandings` uses **four grouped queries**, not one per user. It used to be N+1; don't
+  reintroduce that.

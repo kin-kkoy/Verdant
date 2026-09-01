@@ -1,20 +1,37 @@
+import Link from "next/link";
 import { auth } from "@/lib/auth";
-import { getStandings, getVisitorStandings, type Standing } from "@/lib/data";
+import {
+  byKilograms,
+  getStandings,
+  getVisitorStandings,
+  STANDINGS_WINDOW,
+  type Standing,
+} from "@/lib/data";
 import RefreshButton from "@/components/RefreshButton";
 
 export const metadata = { title: "Standings · Verdant" };
+
+type View = "consistency" | "kg";
 
 function ago(day: string | null): string {
   if (!day) return "no weigh-in yet";
   return `weighed in ${day}`;
 }
 
-export default async function StandingsPage() {
+export default async function StandingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const session = await auth();
   const authed = !!session?.user?.id;
   const meId = authed ? Number(session!.user.id) : null;
-  const rows: Standing[] = authed ? await getStandings() : getVisitorStandings();
 
+  const { view: raw } = await searchParams;
+  const view: View = raw === "kg" ? "kg" : "consistency";
+
+  const all: Standing[] = authed ? await getStandings() : getVisitorStandings();
+  const rows = view === "kg" ? byKilograms(all) : all;
   const leader = rows[0];
 
   return (
@@ -28,23 +45,61 @@ export default async function StandingsPage() {
             </>
           ) : (
             <>
-              The <em>bet</em> awaits.
+              Nobody&apos;s <em>logged</em> a thing yet.
             </>
           )}
         </h2>
         <p>
-          First to shed five kilograms takes the bet. No deadline; autumn&apos;s just the season
-          you&apos;re aiming for.
+          {view === "kg" ? (
+            <>
+              Kilograms against each person&apos;s own goal — losing or gaining. It&apos;s a
+              second opinion, not the scoreboard: the scale can&apos;t tell muscle from anything
+              else.
+            </>
+          ) : (
+            <>
+              Ranked by showing up: days logged in the last {STANDINGS_WINDOW}, then total
+              points, then streak. The one measure that&apos;s fair whichever way your weight is
+              headed.
+            </>
+          )}
         </p>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div className="viewtabs">
+          <Link href="/standings" className={view === "consistency" ? "on" : ""}>
+            Consistency
+          </Link>
+          <Link href="/standings?view=kg" className={view === "kg" ? "on" : ""}>
+            Kilograms
+          </Link>
+        </div>
         <RefreshButton />
       </div>
+
       <div className="card">
         {rows.map((r, i) => {
           const isMe = meId != null && r.id === meId;
           const hasGoal = r.goalKg != null && r.pct != null;
+          const gaining = r.goalKg != null && r.goalKg < 0;
           const toGo = hasGoal ? Math.max(0, Math.round((r.goalKg! - r.lost) * 10) / 10) : 0;
+          // Consistency bar is the window filled in; kg bar is progress to goal.
+          const barPct =
+            view === "kg"
+              ? hasGoal
+                ? r.pct!
+                : null
+              : Math.round((r.activeDays30 / STANDINGS_WINDOW) * 100);
           return (
             <div className="srow" key={r.id}>
               <span className="lead-tag" style={i === 0 ? undefined : { color: "var(--faint)" }}>
@@ -56,31 +111,52 @@ export default async function StandingsPage() {
                 </span>
                 <div>
                   <div className="nm">
-                    {r.name}
+                    {authed ? <Link href={`/profile/${r.id}`}>{r.name}</Link> : r.name}
                     {isMe ? <span className="sub"> · you</span> : null}
                   </div>
                   <div className="sub">
-                    {r.streak}-day streak · {ago(r.latestWeighInDay)}
+                    {view === "kg"
+                      ? `${r.streak}-day streak · ${ago(r.latestWeighInDay)}`
+                      : `${r.streak}-day streak · ${r.points30} points`}
                   </div>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
                 <div className="prog2">
                   <div className="pl">
-                    <span>
-                      <b>
-                        {r.lost >= 0 ? "−" : "+"}
-                        {Math.abs(r.lost).toFixed(1)}
-                      </b>{" "}
-                      kg
-                    </span>
-                    <span>{hasGoal ? `${toGo.toFixed(1)} to go` : "tracking"}</span>
+                    {view === "kg" ? (
+                      <>
+                        <span>
+                          <b>
+                            {r.lost >= 0 ? "−" : "+"}
+                            {Math.abs(r.lost).toFixed(1)}
+                          </b>{" "}
+                          kg
+                        </span>
+                        <span>
+                          {hasGoal
+                            ? `${Math.abs(toGo).toFixed(1)} to ${gaining ? "gain" : "go"}`
+                            : "tracking"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          <b>{r.activeDays30}</b> of {STANDINGS_WINDOW} days
+                        </span>
+                        <span>{r.points30} pts</span>
+                      </>
+                    )}
                   </div>
                   <div className="track">
-                    {hasGoal ? <i style={{ width: `${r.pct}%`, background: r.avatarColor }} /> : null}
+                    {barPct != null ? (
+                      <i style={{ width: `${barPct}%`, background: r.avatarColor }} />
+                    ) : null}
                   </div>
                 </div>
-                <div className="endkg num">{hasGoal ? `${r.pct}%` : "—"}</div>
+                <div className="endkg num">
+                  {view === "kg" ? (hasGoal ? `${r.pct}%` : "—") : `${barPct}%`}
+                </div>
               </div>
             </div>
           );
@@ -88,7 +164,7 @@ export default async function StandingsPage() {
       </div>
       {!authed ? (
         <p style={{ color: "var(--faint)", fontSize: 13.5, marginTop: 16 }}>
-          Guest view — these are sample standings. Sign in to see the real bet.
+          Guest view — these are sample standings. Sign in to see the real board.
         </p>
       ) : null}
     </div>

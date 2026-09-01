@@ -5,14 +5,12 @@ import { and, eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { auth, signOut } from "./auth";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, gardens, logs, planItems, pushSubscriptions, users, weighIns } from "./db/schema";
-import type { TendedPlant } from "./db/schema";
+import { accessRequests, checkins, diaryEntries, logs, planItems, profileInvites, pushSubscriptions, users, weighIns } from "./db/schema";
+import type { ProfileVisibility } from "./db/schema";
 import { todaySG, validPlannerWeek, weekStartSG } from "./date";
 import { isOwner } from "./owner";
 import { round1 } from "./stats";
 import { ACTIVITY_TAGS } from "./tags";
-import { COST, MAX_STAGE, earnForCheckin, earnForTags, spend, type Currencies } from "./economy";
-import { SPECIES, speciesForBed } from "./garden/plants";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -48,104 +46,64 @@ export async function checkInToday(
       set: { tags: cleanTags, note: cleanNote },
     });
 
-  // Award soft currency ONCE per day — only when today's check-in is newly created
-  // (re-checking-in or editing tags later doesn't double-pay). Firewall: this runs
-  // AFTER the check-in write and only ever touches the `gardens` row.
-  const inserted = await db
+  await db
     .insert(checkins)
     .values({ userId, day })
-    .onConflictDoNothing({ target: [checkins.userId, checkins.day] })
-    .returning({ id: checkins.id });
-
-  if (inserted.length > 0) {
-    const sun = earnForCheckin().sun;
-    const tagEarn = earnForTags(cleanTags);
-    await db.insert(gardens).values({ userId }).onConflictDoNothing({ target: gardens.userId });
-    await db
-      .update(gardens)
-      .set({
-        sun: sql`${gardens.sun} + ${sun}`,
-        water: sql`${gardens.water} + ${tagEarn.water}`,
-        compost: sql`${gardens.compost} + ${tagEarn.compost}`,
-      })
-      .where(eq(gardens.userId, userId));
-    revalidatePath("/garden");
-  }
+    .onConflictDoNothing({ target: [checkins.userId, checkins.day] });
 
   revalidatePath("/");
   revalidatePath("/standings");
+  revalidatePath("/profile", "layout");
   return { ok: true };
 }
 
-// ---------- Garden (game layer, Phase 3) ----------
+// ---------- Profile visibility ----------
 
-type GardenMutation =
-  | { ok: true; currencies: Currencies; tended: TendedPlant[] }
-  | { ok: false; error: string };
-
-/** Load (lazy-create) the caller's garden row. */
-async function loadGarden(userId: number) {
-  await db.insert(gardens).values({ userId }).onConflictDoNothing({ target: gardens.userId });
-  const [row] = await db.select().from(gardens).where(eq(gardens.userId, userId)).limit(1);
-  return row;
-}
-
-const MAX_TENDED = 12; // sane cap on the tended garden
-
-/** Plant a new tended pot (stage 0) by spending soft currency. */
-export async function plantSeed(speciesId?: string): Promise<GardenMutation> {
+/** Open your profile to everyone, or limit it to the people you've invited. */
+export async function setProfileVisibility(mode: ProfileVisibility): Promise<ActionResult> {
   const userId = await requireUserId();
   if (!userId) return { ok: false, error: "Not signed in." };
-
-  const row = await loadGarden(userId);
-  const tended = row.plantState ?? [];
-  if (tended.length >= MAX_TENDED) return { ok: false, error: "Your garden is full — tend what you have." };
-
-  const balances: Currencies = { sun: row.sun, water: row.water, compost: row.compost };
-  const result = spend(balances, COST.plantSeed);
-  if (!result.ok) return { ok: false, error: result.error };
-
-  const valid = SPECIES.some((s) => s.id === speciesId);
-  const species = valid ? speciesId! : speciesForBed(tended.length).id;
-  const plant: TendedPlant = {
-    id: crypto.randomUUID(),
-    species,
-    stage: 0,
-    wilt: 0,
-    plantedAt: todaySG(),
-  };
-  const next = [...tended, plant];
-
-  await db
-    .update(gardens)
-    .set({ sun: result.after.sun, water: result.after.water, compost: result.after.compost, plantState: next })
-    .where(eq(gardens.userId, userId));
-  revalidatePath("/garden");
-  return { ok: true, currencies: result.after, tended: next };
+  if (mode !== "everyone" && mode !== "invited") {
+    return { ok: false, error: "Unknown visibility setting." };
+  }
+  await db.update(users).set({ profileVisibility: mode }).where(eq(users.id, userId));
+  revalidatePath("/profile", "layout");
+  return { ok: true };
 }
 
-/** Nudge one tended pot up a growth stage by spending soft currency. */
-export async function tendPlant(plantId: string): Promise<GardenMutation> {
+/**
+ * Let one person into your profile, or take the invitation back. One-way — the
+ * viewer isn't asked and isn't notified; it only controls what they can open.
+ */
+export async function setProfileInvite(
+  viewerId: number,
+  invited: boolean,
+): Promise<ActionResult> {
   const userId = await requireUserId();
   if (!userId) return { ok: false, error: "Not signed in." };
+  if (!Number.isInteger(viewerId) || viewerId <= 0) {
+    return { ok: false, error: "Unknown account." };
+  }
+  if (viewerId === userId) return { ok: false, error: "You can always see your own profile." };
 
-  const row = await loadGarden(userId);
-  const tended = row.plantState ?? [];
-  const target = tended.find((p) => p.id === plantId);
-  if (!target) return { ok: false, error: "That plant is gone." };
-  if (target.stage >= MAX_STAGE) return { ok: false, error: "Already in full bloom." };
-
-  const balances: Currencies = { sun: row.sun, water: row.water, compost: row.compost };
-  const result = spend(balances, COST.tendStage);
-  if (!result.ok) return { ok: false, error: result.error };
-
-  const next = tended.map((p) => (p.id === plantId ? { ...p, stage: p.stage + 1, wilt: 0 } : p));
-  await db
-    .update(gardens)
-    .set({ sun: result.after.sun, water: result.after.water, compost: result.after.compost, plantState: next })
-    .where(eq(gardens.userId, userId));
-  revalidatePath("/garden");
-  return { ok: true, currencies: result.after, tended: next };
+  if (invited) {
+    const [target] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, viewerId))
+      .limit(1);
+    if (!target) return { ok: false, error: "Unknown account." };
+    await db
+      .insert(profileInvites)
+      .values({ ownerId: userId, viewerId })
+      .onConflictDoNothing({ target: [profileInvites.ownerId, profileInvites.viewerId] });
+  } else {
+    await db
+      .delete(profileInvites)
+      .where(and(eq(profileInvites.ownerId, userId), eq(profileInvites.viewerId, viewerId)));
+  }
+  revalidatePath("/profile", "layout");
+  return { ok: true };
 }
 
 /** Sign out and return to the landing page. */
@@ -170,9 +128,11 @@ export async function updateStartWeight(weight: number): Promise<ActionResult> {
 export async function updateGoal(goal: number | null): Promise<ActionResult> {
   const userId = await requireUserId();
   if (!userId) return { ok: false, error: "Not signed in." };
+  // Goals are SIGNED: positive = lose that many kg, negative = gain that many.
   let value: string | null = null;
   if (goal != null) {
-    if (!Number.isFinite(goal) || goal <= 0 || goal > 200) {
+    const size = Math.abs(goal);
+    if (!Number.isFinite(goal) || size === 0 || size > 200) {
       return { ok: false, error: "Pick a goal between 0 and 200 kg." };
     }
     value = String(round1(goal));
@@ -426,6 +386,7 @@ export async function saveWeighIn(weight: number): Promise<ActionResult> {
 
   revalidatePath("/");
   revalidatePath("/standings");
+  revalidatePath("/profile", "layout");
   return { ok: true };
 }
 

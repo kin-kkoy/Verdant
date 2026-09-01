@@ -7,7 +7,11 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
   const vals = d.series.map((p) => p.weight);
   const lostLabel = d.lost >= 0 ? `−${d.lost.toFixed(1)} kg` : `+${Math.abs(d.lost).toFixed(1)} kg`;
   const hasGoal = d.goalKg != null;
-  const toGo = hasGoal ? Math.max(0, Math.round((d.goalKg! - d.lost) * 10) / 10) : 0;
+  // Goals are signed (negative = a gain goal); `lost` uses the same convention,
+  // so the remaining distance is the same subtraction either way.
+  const gaining = hasGoal && d.goalKg! < 0;
+  const toGo = hasGoal ? Math.abs(Math.round((d.goalKg! - d.lost) * 10) / 10) : 0;
+  const onTrack = hasGoal && (gaining ? d.lost <= d.goalKg! : d.lost >= d.goalKg!);
   const editable = d.mode === "official";
 
   return (
@@ -17,17 +21,23 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
           <div className="section-head" style={{ marginBottom: 0 }}>
             <div className="eyebrow">The season so far</div>
             <h2>
-              {d.lost > 0 ? (
-                <>
-                  Down <em>{d.lost.toFixed(1)} kg</em> — trending the right way.
-                </>
-              ) : (
+              {d.lost === 0 ? (
                 <>
                   The <em>first weigh-in</em> starts the story.
                 </>
+              ) : d.lost > 0 ? (
+                <>
+                  Down <em>{d.lost.toFixed(1)} kg</em> since you started.
+                </>
+              ) : (
+                <>
+                  Up <em>{Math.abs(d.lost).toFixed(1)} kg</em> since you started.
+                </>
               )}
             </h2>
-            <p>Every weigh-in plotted. The line only needs to keep drifting down.</p>
+            <p>
+              Every weigh-in plotted. The scale is one signal — the squares above are the other.
+            </p>
           </div>
           {editable ? <AccountMenu startWeight={d.startWeight} goalKg={d.goalKg} /> : null}
         </div>
@@ -41,8 +51,10 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
             <div className="cap">
               Started at {d.startWeight.toFixed(1)} kg ·{" "}
               {hasGoal
-                ? `${toGo.toFixed(1)} kg to your ${d.goalKg!.toFixed(0)} kg goal`
-                : `${Math.max(0, d.lost).toFixed(1)} kg lost so far · no goal set`}
+                ? `${toGo.toFixed(1)} kg to your ${Math.abs(d.goalKg!).toFixed(0)} kg ${
+                    gaining ? "gain" : "loss"
+                  } goal`
+                : `${Math.abs(d.lost).toFixed(1)} kg ${d.lost < 0 ? "gained" : "lost"} so far · no goal set`}
             </div>
             <div style={{ marginTop: 20 }}>
               <Chart vals={vals} />
@@ -53,7 +65,7 @@ export default function ProgressSection({ d }: { d: Dashboard }) {
               <>
                 <Ring pct={d.pct ?? 0} />
                 <div className="note">
-                  {toGo > 0 ? `${toGo.toFixed(1)} kg to go` : "Goal reached 🎉"}
+                  {onTrack ? "Goal reached 🎉" : `${toGo.toFixed(1)} kg to go`}
                 </div>
               </>
             ) : (
@@ -141,7 +153,7 @@ function Ring({ pct }: { pct: number }) {
       </svg>
       <div className="center">
         <b className="num">{pct}%</b>
-        <span>to bloom</span>
+        <span>to goal</span>
       </div>
     </div>
   );

@@ -17,7 +17,11 @@ export default function AccountMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
   const [weightVal, setWeightVal] = useState(String(startWeight));
-  const [goalVal, setGoalVal] = useState(goalKg != null ? String(goalKg) : "");
+  // Goals are stored signed; the modal splits that into a direction + a size.
+  const [goalVal, setGoalVal] = useState(goalKg != null ? String(Math.abs(goalKg)) : "");
+  const [goalDir, setGoalDir] = useState<"lose" | "gain">(
+    goalKg != null && goalKg < 0 ? "gain" : "lose",
+  );
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -25,8 +29,17 @@ export default function AccountMenu({
     setMenuOpen(false);
     setError("");
     if (which === "weight") setWeightVal(String(startWeight));
-    if (which === "goal") setGoalVal(goalKg != null ? String(goalKg) : "");
+    if (which === "goal") {
+      setGoalVal(goalKg != null ? String(Math.abs(goalKg)) : "");
+      setGoalDir(goalKg != null && goalKg < 0 ? "gain" : "lose");
+    }
     setModal(which);
+  }
+
+  /** The stored goal: positive to lose, negative to gain. */
+  function signedGoal(): number {
+    const size = Math.abs(Number(goalVal));
+    return goalDir === "gain" ? -size : size;
   }
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -103,15 +116,36 @@ export default function AccountMenu({
         <div className="modal">
           <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 3 }}>Your goal</h3>
           <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 16 }}>
-            How many kilograms are you aiming to lose? Leave it off to just track without a goal.
+            Which way are you headed, and by how much? Bulking counts as progress too. Leave
+            it off to just track without a goal.
           </p>
           {error ? <p style={{ color: "var(--rust)", fontSize: 14, marginBottom: 12 }}>{error}</p> : null}
+          <span className="mlabel">Direction</span>
+          <div className="tags" style={{ marginBottom: 16 }}>
+            {(["lose", "gain"] as const).map((dir) => (
+              <span
+                key={dir}
+                className={`tag${goalDir === dir ? " on" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setGoalDir(dir)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setGoalDir(dir);
+                  }
+                }}
+              >
+                {dir === "lose" ? "Lose weight" : "Gain weight"}
+              </span>
+            ))}
+          </div>
           <span className="mlabel">Goal (kg)</span>
           <input
             inputMode="decimal"
             value={goalVal}
             onChange={(e) => setGoalVal(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && goalVal.trim() && run(() => updateGoal(Number(goalVal)))}
+            onKeyDown={(e) => e.key === "Enter" && goalVal.trim() && run(() => updateGoal(signedGoal()))}
             placeholder="e.g. 5"
             autoFocus
           />
@@ -123,7 +157,7 @@ export default function AccountMenu({
             <button className="btn ghost" onClick={() => setModal(null)} disabled={pending}>
               Cancel
             </button>
-            <button className="btn" onClick={() => run(() => updateGoal(Number(goalVal)))} disabled={pending || !goalVal.trim()}>
+            <button className="btn" onClick={() => run(() => updateGoal(signedGoal()))} disabled={pending || !goalVal.trim()}>
               {pending ? "Saving…" : "Save"}
             </button>
           </div>

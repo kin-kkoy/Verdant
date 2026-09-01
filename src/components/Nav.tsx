@@ -7,6 +7,7 @@ import RequestAccessButton from "./RequestAccessButton";
 import { signOutAction } from "@/lib/actions";
 
 const LINKS = [
+  { href: "/profile", label: "Profile" },
   { href: "/journal", label: "Journal" },
   { href: "/planner", label: "Planner" },
   { href: "/standings", label: "Standings" },
@@ -36,7 +37,11 @@ export default function Nav({
         </Link>
         <nav className="links">
           {LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className={pathname === l.href ? "on" : ""}>
+            <Link
+              key={l.href}
+              href={l.href}
+              className={pathname === l.href || pathname.startsWith(`${l.href}/`) ? "on" : ""}
+            >
               {l.label}
             </Link>
           ))}

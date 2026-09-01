@@ -22,8 +22,15 @@ describe("progressPct", () => {
   it("rounds to integer percent", () => {
     expect(progressPct(2.3, 5)).toBe(46);
   });
-  it("handles non-positive goal", () => {
+  it("handles a zero goal", () => {
     expect(progressPct(2, 0)).toBe(0);
+  });
+  it("scores a gain goal (negative) the same way as a loss goal", () => {
+    // Goal: gain 3 kg. `lost` is start − latest, so gaining 1.5 kg reads as -1.5.
+    expect(progressPct(-1.5, -3)).toBe(50);
+    expect(progressPct(-3, -3)).toBe(100);
+    // Moving the wrong way (losing weight while bulking) scores 0, not negative.
+    expect(progressPct(1.5, -3)).toBe(0);
   });
 });
 

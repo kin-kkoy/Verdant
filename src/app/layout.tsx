@@ -18,8 +18,8 @@ const serif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Verdant — a cozy cabin for two",
-  description: "A private cozy-cabin tracker for a friendly 5 kg weight-loss bet.",
+  title: "Verdant — a warm activity tracker",
+  description: "A private workout and body tracker — every square is a day you showed up.",
   appleWebApp: { capable: true, title: "Verdant", statusBarStyle: "default" },
 };
 

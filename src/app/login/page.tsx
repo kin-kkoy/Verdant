@@ -34,7 +34,7 @@ export default async function LoginPage({
         <h1>
           Welcome back to <em>Verdant</em>
         </h1>
-        <p className="sub">The cabin&apos;s warm. Sign in to keep the streak alive.</p>
+        <p className="sub">Sign in to keep the streak alive.</p>
         {error ? <div className="err">That name and password didn&apos;t match.</div> : null}
         <label htmlFor="name">Name</label>
         <input id="name" name="name" autoComplete="username" autoFocus required />

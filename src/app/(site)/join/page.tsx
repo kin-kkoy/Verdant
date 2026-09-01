@@ -12,7 +12,7 @@ export default async function JoinPage({
     <main className="auth-wrap">
       <div className="card auth-card">
         <h1>
-          Join the <em>cabin</em>
+          Join the <em>group</em>
         </h1>
         <p className="sub">Enter your access code to check your status and set up your account.</p>
         <ClaimCodeFlow initialCode={code ?? ""} />

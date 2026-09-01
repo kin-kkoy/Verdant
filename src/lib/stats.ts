@@ -13,9 +13,15 @@ export function lostKg(startWeight: number, latestWeighIn: number | null): numbe
   return round1(startWeight - latestWeighIn);
 }
 
-/** Progress toward goal as a 0–100 integer percent. */
+/**
+ * Progress toward goal as a 0–100 integer percent.
+ *
+ * Goals are SIGNED: a positive goal means "lose this many kg", a negative one
+ * means "gain this many". `lost` carries the same sign convention (start − latest),
+ * so someone bulking toward a −3 kg goal who is 1.5 kg heavier scores 50%, not 0.
+ */
 export function progressPct(lost: number, goal: number): number {
-  if (goal <= 0) return 0;
+  if (goal === 0) return 0;
   return Math.max(0, Math.min(100, Math.round((lost / goal) * 100)));
 }
 

@@ -6,17 +6,16 @@ import {
   date,
   numeric,
   timestamp,
-  jsonb,
   unique,
 } from "drizzle-orm/pg-core";
 
 /**
- * Verdant — Phase 1 schema (the tracker).
- * Game-layer tables (gardens, companions, gifts, races) are deferred to Phase 3+
- * and intentionally NOT defined here.
+ * Verdant — the activity tracker.
  *
- * FIREWALL: standings are derived only from `weighIns` (start_weight - latest).
- * Nothing in the schema lets flavor/game state alter the bet.
+ * Meal logging (protein/calories) and workout sessions (exercise → sets → reps)
+ * are Phase 2 and intentionally NOT defined here yet. `users.mealsPerDay` is the
+ * seam: null means the user isn't tracking meals, which keeps meals out of their
+ * contribution-graph target until Phase 2 ships (see src/lib/activity.ts).
  *
  * Timezone: "day" columns store the calendar day in the fixed group timezone
  * Asia/Singapore (see src/lib/date.ts → todaySG). No per-user tz column yet.
@@ -37,6 +36,13 @@ export const users = pgTable("users", {
   // the IANA zone captured from their phone. lastNudgedDay guards against sending
   // twice in one day (group-TZ "YYYY-MM-DD").
   reminderMinute: integer("reminder_minute"),
+  // Contribution-graph target: meals the user aims to log per day. null = not
+  // tracking meals, so meals are excluded from their target (see activity.ts).
+  mealsPerDay: integer("meals_per_day"),
+  // Who may open this user's profile page: "everyone" (default) or "invited",
+  // which limits it to the people listed in `profileInvites`. The competition on
+  // /standings stays public either way — this gates the detail page only.
+  profileVisibility: text("profile_visibility").notNull().default("everyone"),
   timezone: text("timezone").notNull().default("Asia/Singapore"),
   lastNudgedDay: date("last_nudged_day"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -144,55 +150,30 @@ export const accessRequests = pgTable("access_requests", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/**
- * Game layer (Phase 3) — the garden. ADDITIVE: this table touches none of the
- * firewall tables above. Standings/kg are still derived only from `weighIns`.
- *
- * Stored here = the TENDED garden + soft currencies + spend counter. The BET
- * garden (plants that grow with real kg) is NOT stored — it's derived from
- * weigh-ins on read. Bloom/Pure Bloom are likewise derived from kg truth; we
- * persist only `bloomSpent` (the spend), never the balance.
- *
- * `companions`, `gifts`, `races` (BUILD-PLAN §2) are deferred to Phase 4.
- */
-export type AutomationId = "drip" | "bee" | "worms" | "greenhouse";
+// One row per person an "invited"-mode user has let into their profile. Purely
+// one-way: granting access asks nothing of the viewer and is revoked by deleting
+// the row. Ignored entirely while the owner's visibility is "everyone".
+export const profileInvites = pgTable(
+  "profile_invites",
+  {
+    id: serial("id").primaryKey(),
+    // whose profile is being shared
+    ownerId: integer("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // who is allowed to see it
+    viewerId: integer("viewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("profile_invites_owner_viewer").on(t.ownerId, t.viewerId)],
+);
 
-// One pot in the TENDED garden (grown from soft currencies; subject to §4.4 decay).
-export type TendedPlant = {
-  id: string;
-  species: string; // logical key resolved by the asset registry
-  stage: number; // 0..4 growth
-  wilt: number; // 0 = healthy … rises when neglected (Phase 3b decay)
-  plantedAt: string; // group-TZ "YYYY-MM-DD"
-};
-
-// Customization slots (Phase 3c). Empty = default skin.
-export type GardenSkin = {
-  vessel?: string;
-  sky?: string;
-  ground?: string;
-  palette?: string;
-  critter?: string;
-};
-
-export const gardens = pgTable("gardens", {
-  userId: integer("user_id")
-    .primaryKey()
-    .references(() => users.id, { onDelete: "cascade" }),
-  // soft currencies (§4.1) — earned by logging, spendable, decay in Phase 3b
-  sun: integer("sun").notNull().default(0),
-  water: integer("water").notNull().default(0),
-  compost: integer("compost").notNull().default(0),
-  // only the SPEND is stored; spendable Bloom balance = earned(derived from kg) − this
-  bloomSpent: integer("bloom_spent").notNull().default(0),
-  skin: jsonb("skin").$type<GardenSkin>().notNull().default({}),
-  plantState: jsonb("plant_state").$type<TendedPlant[]>().notNull().default([]),
-  automation: jsonb("automation").$type<AutomationId[]>().notNull().default([]),
-  // idle/decay anchor — server-authoritative; never trust the client clock
-  lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
-});
+export type ProfileVisibility = "everyone" | "invited";
 
 export type User = typeof users.$inferSelect;
+export type ProfileInvite = typeof profileInvites.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type WeighIn = typeof weighIns.$inferSelect;
 export type Checkin = typeof checkins.$inferSelect;
@@ -200,4 +181,3 @@ export type Log = typeof logs.$inferSelect;
 export type DiaryEntry = typeof diaryEntries.$inferSelect;
 export type PlanItem = typeof planItems.$inferSelect;
 export type AccessRequest = typeof accessRequests.$inferSelect;
-export type Garden = typeof gardens.$inferSelect;
