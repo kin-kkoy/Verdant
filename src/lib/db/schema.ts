@@ -5,6 +5,7 @@ import {
   text,
   date,
   numeric,
+  boolean,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
@@ -43,6 +44,10 @@ export const users = pgTable("users", {
   // which limits it to the people listed in `profileInvites`. The competition on
   // /standings stays public either way — this gates the detail page only.
   profileVisibility: text("profile_visibility").notNull().default("everyone"),
+  // Workouts are opt-out. When false the contribution-graph target drops by
+  // MAX_WORKOUTS, so someone who only diets can still reach the brightest square
+  // on weight + check-in alone (see src/lib/activity.ts).
+  tracksWorkouts: boolean("tracks_workouts").notNull().default(true),
   timezone: text("timezone").notNull().default("Asia/Singapore"),
   lastNudgedDay: date("last_nudged_day"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -172,7 +177,81 @@ export const profileInvites = pgTable(
 
 export type ProfileVisibility = "everyone" | "invited";
 
+/**
+ * Workouts — a library of exercise cards the user builds, not a session logger.
+ *
+ * A card is a name, a figure, sets and an amount. Tapping "done" writes an
+ * `exerciseLogs` row; the "done 24x" counter on a card is COUNT of those rows,
+ * never a stored column — a counter beside dated rows is two truths that drift.
+ */
+
+/** What a card counts. Timed moves (Plank, Wall Sit) are seconds, not reps. */
+export type ExerciseUnit = "reps" | "seconds";
+
+export const exercises = pgTable("exercises", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  // Catalogue key (src/lib/exercises/catalog.ts) -> the figure is resolved from
+  // /exercises/<slug>/{1,2,3}.png, costing zero database bytes. null = custom.
+  slug: text("slug"),
+  unit: text("unit").$type<ExerciseUnit>().notNull().default("reps"),
+  sets: integer("sets").notNull().default(3),
+  amount: integer("amount").notNull().default(10),
+  // Only for custom exercises: a client-downscaled data URL, same as diary photos.
+  image: text("image"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// One completion. sets/amount/unit are COPIED at log time — editing a card later
+// must not rewrite what you actually did last month.
+export const exerciseLogs = pgTable("exercise_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  exerciseId: integer("exercise_id")
+    .notNull()
+    .references(() => exercises.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  sets: integer("sets").notNull(),
+  amount: integer("amount").notNull(),
+  unit: text("unit").$type<ExerciseUnit>().notNull().default("reps"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A named group of cards you can log in one go ("Push day").
+export const routines = pgTable("routines", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const routineExercises = pgTable(
+  "routine_exercises",
+  {
+    id: serial("id").primaryKey(),
+    routineId: integer("routine_id")
+      .notNull()
+      .references(() => routines.id, { onDelete: "cascade" }),
+    exerciseId: integer("exercise_id")
+      .notNull()
+      .references(() => exercises.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [unique("routine_exercises_routine_exercise").on(t.routineId, t.exerciseId)],
+);
+
 export type User = typeof users.$inferSelect;
+export type Exercise = typeof exercises.$inferSelect;
+export type ExerciseLog = typeof exerciseLogs.$inferSelect;
+export type Routine = typeof routines.$inferSelect;
+export type RoutineExercise = typeof routineExercises.$inferSelect;
 export type ProfileInvite = typeof profileInvites.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type WeighIn = typeof weighIns.$inferSelect;

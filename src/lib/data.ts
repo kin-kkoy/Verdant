@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, logs, planItems, profileInvites, users, weighIns } from "./db/schema";
-import type { ProfileVisibility } from "./db/schema";
+import { accessRequests, checkins, diaryEntries, exerciseLogs, exercises, logs, planItems, profileInvites, routineExercises, routines, users, weighIns } from "./db/schema";
+import type { ExerciseUnit, ProfileVisibility } from "./db/schema";
 import { addDaysIso, dayNumber, relativeFromNow, todaySG, weekStartSG } from "./date";
 import { daysIn, lostKg, progressPct, round1, streakDays } from "./stats";
 import { DEFAULT_TRACKERS, EMPTY_DAY, level, points, type DayActivity, type Trackers } from "./activity";
-import { countExerciseTags } from "./tags";
+import { workoutsForDay } from "./workouts";
+import { catalogExercise } from "./exercises/catalog";
 
 export type WeightPoint = { day: string; weight: number };
 
@@ -112,7 +113,7 @@ export async function getStandings(): Promise<Standing[]> {
   const today = todaySG();
   const windowFrom = addDaysIso(today, -(STANDINGS_WINDOW - 1));
 
-  const [allUsers, allWeighIns, allCheckins, windowLogs] = await Promise.all([
+  const [allUsers, allWeighIns, allCheckins, windowLogs, windowExerciseLogs] = await Promise.all([
     db.select().from(users).orderBy(asc(users.id)),
     db
       .select({ userId: weighIns.userId, day: weighIns.day, weightKg: weighIns.weightKg })
@@ -123,6 +124,14 @@ export async function getStandings(): Promise<Standing[]> {
       .select({ userId: logs.userId, day: logs.day, tags: logs.tags })
       .from(logs)
       .where(gte(logs.day, windowFrom)),
+    db
+      .select({
+        userId: exerciseLogs.userId,
+        day: exerciseLogs.day,
+        exerciseId: exerciseLogs.exerciseId,
+      })
+      .from(exerciseLogs)
+      .where(gte(exerciseLogs.day, windowFrom)),
   ]);
 
   const group = <T extends { userId: number }>(rows: T[]) => {
@@ -137,6 +146,7 @@ export async function getStandings(): Promise<Standing[]> {
   const weighInsBy = group(allWeighIns);
   const checkinsBy = group(allCheckins);
   const logsBy = group(windowLogs);
+  const exerciseLogsBy = group(windowExerciseLogs);
 
   const rows: Standing[] = allUsers.map((user) => {
     const wis = weighInsBy.get(user.id) ?? [];
@@ -159,8 +169,15 @@ export async function getStandings(): Promise<Standing[]> {
     };
     for (const w of wis) if (w.day >= windowFrom) touch(w.day).weighed = true;
     for (const c of cis) if (c.day >= windowFrom) touch(c.day).checkedIn = true;
-    for (const l of logsBy.get(user.id) ?? []) {
-      touch(l.day).workouts = countExerciseTags(l.tags);
+    const cardsByDay = new Map<string, number[]>();
+    for (const e of exerciseLogsBy.get(user.id) ?? []) {
+      const list = cardsByDay.get(e.day);
+      if (list) list.push(e.exerciseId);
+      else cardsByDay.set(e.day, [e.exerciseId]);
+    }
+    const tagsByDay = new Map((logsBy.get(user.id) ?? []).map((l) => [l.day, l.tags]));
+    for (const day of new Set([...cardsByDay.keys(), ...tagsByDay.keys()])) {
+      touch(day).workouts = workoutsForDay(cardsByDay.get(day) ?? [], tagsByDay.get(day) ?? []);
     }
     const dayPoints = [...byDay.values()].map(points);
 
@@ -239,6 +256,7 @@ export type ProfileUser = {
   /** Group-TZ day the account was created. */
   joinedDay: string;
   visibility: ProfileVisibility;
+  tracksWorkouts: boolean;
 };
 
 function asVisibility(v: string): ProfileVisibility {
@@ -254,6 +272,7 @@ export async function getProfileUser(userId: number): Promise<ProfileUser | null
       avatarColor: users.avatarColor,
       createdAt: users.createdAt,
       profileVisibility: users.profileVisibility,
+      tracksWorkouts: users.tracksWorkouts,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -265,6 +284,7 @@ export async function getProfileUser(userId: number): Promise<ProfileUser | null
     avatarColor: user.avatarColor,
     joinedDay: todaySG(new Date(user.createdAt)),
     visibility: asVisibility(user.profileVisibility),
+    tracksWorkouts: user.tracksWorkouts,
   };
 }
 
@@ -307,6 +327,7 @@ export async function listProfileUsers(): Promise<ProfileUser[]> {
       avatarColor: users.avatarColor,
       createdAt: users.createdAt,
       profileVisibility: users.profileVisibility,
+      tracksWorkouts: users.tracksWorkouts,
     })
     .from(users)
     .orderBy(asc(users.id));
@@ -316,6 +337,7 @@ export async function listProfileUsers(): Promise<ProfileUser[]> {
     avatarColor: u.avatarColor,
     joinedDay: todaySG(new Date(u.createdAt)),
     visibility: asVisibility(u.profileVisibility),
+    tracksWorkouts: u.tracksWorkouts,
   }));
 }
 
@@ -410,7 +432,7 @@ export async function getActivityCalendar(
   const to = todaySG();
   const from = addDaysIso(to, -(windowDays - 1));
 
-  const [wis, cis, lgs] = await Promise.all([
+  const [wis, cis, lgs, exl] = await Promise.all([
     db
       .select({ day: weighIns.day })
       .from(weighIns)
@@ -423,6 +445,10 @@ export async function getActivityCalendar(
       .select({ day: logs.day, tags: logs.tags })
       .from(logs)
       .where(and(eq(logs.userId, userId), gte(logs.day, from))),
+    db
+      .select({ day: exerciseLogs.day, exerciseId: exerciseLogs.exerciseId })
+      .from(exerciseLogs)
+      .where(and(eq(exerciseLogs.userId, userId), gte(exerciseLogs.day, from))),
   ]);
 
   const byDay = new Map<string, DayActivity>();
@@ -436,11 +462,23 @@ export async function getActivityCalendar(
   };
   for (const w of wis) touch(w.day).weighed = true;
   for (const c of cis) touch(c.day).checkedIn = true;
-  for (const l of lgs) touch(l.day).workouts = countExerciseTags(l.tags);
+
+  // Workouts score off whichever evidence is stronger: cards logged that day, or
+  // the day's exercise tags (the only source before workout cards existed).
+  const cardsByDay = new Map<string, number[]>();
+  for (const e of exl) {
+    const list = cardsByDay.get(e.day);
+    if (list) list.push(e.exerciseId);
+    else cardsByDay.set(e.day, [e.exerciseId]);
+  }
+  const tagsByDay = new Map(lgs.map((l) => [l.day, l.tags]));
+  for (const day of new Set([...cardsByDay.keys(), ...tagsByDay.keys()])) {
+    touch(day).workouts = workoutsForDay(cardsByDay.get(day) ?? [], tagsByDay.get(day) ?? []);
+  }
 
   const trackers: Trackers = {
     mealsPerDay: user.mealsPerDay,
-    tracksWorkouts: DEFAULT_TRACKERS.tracksWorkouts,
+    tracksWorkouts: user.tracksWorkouts,
   };
   return summarize("official", byDay, trackers, from, to);
 }
@@ -472,6 +510,170 @@ export function getVisitorActivityCalendar(windowDays = 365): ActivityCalendar {
     });
   }
   return summarize("visitor", byDay, DEFAULT_TRACKERS, from, to);
+}
+
+// ---------- Workouts ----------
+
+export type ExerciseCard = {
+  id: number;
+  name: string;
+  /** Catalogue key, or null for a custom exercise. */
+  slug: string | null;
+  unit: ExerciseUnit;
+  sets: number;
+  amount: number;
+  /** Data URL for a custom exercise's own picture; null when the slug supplies one. */
+  image: string | null;
+  /** Muscle group from the catalogue, for grouping and colour. Empty for custom. */
+  muscle: string;
+  /** How many animation frames the figure has (0 when there's no figure at all). */
+  frames: number;
+  /** All-time completions — COUNT of exercise_logs, never a stored column. */
+  doneCount: number;
+  /** Group-TZ day of the most recent completion, or null. */
+  lastDay: string | null;
+  /** True when this card has already been logged today. */
+  doneToday: boolean;
+};
+
+export type ExerciseCompletion = {
+  id: number;
+  exerciseId: number;
+  day: string;
+  sets: number;
+  amount: number;
+  unit: ExerciseUnit;
+  when: string;
+  ts: number;
+};
+
+export type RoutineView = {
+  id: number;
+  name: string;
+  exerciseIds: number[];
+};
+
+export type WorkoutsView = {
+  mode: "official" | "visitor";
+  cards: ExerciseCard[];
+  /** Recent completions across all cards, newest first (for the card history modals). */
+  completions: ExerciseCompletion[];
+  routines: RoutineView[];
+  tracksWorkouts: boolean;
+};
+
+/** Everything /workouts needs for one official user. Five grouped queries. */
+export async function getWorkouts(userId: number): Promise<WorkoutsView | null> {
+  const [user] = await db
+    .select({ tracksWorkouts: users.tracksWorkouts })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return null;
+
+  const today = todaySG();
+  const [rows, allLogs, routineRows, routineLinks] = await Promise.all([
+    db.select().from(exercises).where(eq(exercises.userId, userId)).orderBy(asc(exercises.id)),
+    db
+      .select()
+      .from(exerciseLogs)
+      .where(eq(exerciseLogs.userId, userId))
+      .orderBy(desc(exerciseLogs.createdAt)),
+    db.select().from(routines).where(eq(routines.userId, userId)).orderBy(asc(routines.id)),
+    db
+      .select({
+        routineId: routineExercises.routineId,
+        exerciseId: routineExercises.exerciseId,
+        position: routineExercises.position,
+      })
+      .from(routineExercises)
+      .innerJoin(routines, eq(routines.id, routineExercises.routineId))
+      .where(eq(routines.userId, userId))
+      .orderBy(asc(routineExercises.position)),
+  ]);
+
+  // Counters are derived here rather than stored, so they can never drift.
+  const counts = new Map<number, number>();
+  const lastDay = new Map<string, string>();
+  const doneToday = new Set<number>();
+  for (const l of allLogs) {
+    counts.set(l.exerciseId, (counts.get(l.exerciseId) ?? 0) + 1);
+    const key = String(l.exerciseId);
+    const prev = lastDay.get(key);
+    if (!prev || l.day > prev) lastDay.set(key, l.day);
+    if (l.day === today) doneToday.add(l.exerciseId);
+  }
+
+  const cards: ExerciseCard[] = rows.map((r) => {
+    const cat = catalogExercise(r.slug);
+    return {
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      unit: r.unit,
+      sets: r.sets,
+      amount: r.amount,
+      image: r.image,
+      muscle: cat?.muscle ?? "",
+      frames: cat?.frames ?? (r.image ? 1 : 0),
+      doneCount: counts.get(r.id) ?? 0,
+      lastDay: lastDay.get(String(r.id)) ?? null,
+      doneToday: doneToday.has(r.id),
+    };
+  });
+
+  const byRoutine = new Map<number, number[]>();
+  for (const link of routineLinks) {
+    const list = byRoutine.get(link.routineId);
+    if (list) list.push(link.exerciseId);
+    else byRoutine.set(link.routineId, [link.exerciseId]);
+  }
+
+  return {
+    mode: "official",
+    cards,
+    completions: allLogs.slice(0, 400).map((l) => ({
+      id: l.id,
+      exerciseId: l.exerciseId,
+      day: l.day,
+      sets: l.sets,
+      amount: l.amount,
+      unit: l.unit,
+      when: relativeFromNow(new Date(l.createdAt)),
+      ts: new Date(l.createdAt).getTime(),
+    })),
+    routines: routineRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      exerciseIds: byRoutine.get(r.id) ?? [],
+    })),
+    tracksWorkouts: user.tracksWorkouts,
+  };
+}
+
+/** Visitor teaser — in-memory only, nothing persisted (NOTES hard rule). */
+export function getVisitorWorkouts(): WorkoutsView {
+  const today = todaySG();
+  return {
+    mode: "visitor",
+    cards: [
+      { id: -1, name: "Push-up", slug: "push-up", unit: "reps", sets: 3, amount: 15,
+        image: null, muscle: "Chest", frames: 3, doneCount: 24, lastDay: today, doneToday: true },
+      { id: -2, name: "Plank", slug: "plank", unit: "seconds", sets: 3, amount: 45,
+        image: null, muscle: "Core", frames: 3, doneCount: 18, lastDay: today, doneToday: false },
+      { id: -3, name: "Squat", slug: "squat", unit: "reps", sets: 4, amount: 12,
+        image: null, muscle: "Quads", frames: 3, doneCount: 11, lastDay: addDaysIso(today, -2),
+        doneToday: false },
+    ],
+    completions: [
+      { id: -101, exerciseId: -1, day: today, sets: 3, amount: 15, unit: "reps",
+        when: "2 hrs ago", ts: Date.now() - 7_200_000 },
+      { id: -102, exerciseId: -2, day: addDaysIso(today, -1), sets: 3, amount: 45,
+        unit: "seconds", when: "yesterday", ts: Date.now() - 90_000_000 },
+    ],
+    routines: [{ id: -1, name: "Morning set", exerciseIds: [-1, -2] }],
+    tracksWorkouts: true,
+  };
 }
 
 // ---------- Journal (per-user) ----------

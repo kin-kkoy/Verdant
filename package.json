@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "icons": "node scripts/generate-icons.mjs",
+    "exercises": "node scripts/build-exercise-assets.mjs",
     "vapid": "node scripts/generate-vapid.mjs",
     "test": "vitest run"
   },

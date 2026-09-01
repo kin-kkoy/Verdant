@@ -12,6 +12,7 @@ import {
 import { randomTease } from "@/lib/teases";
 import ActivityGraph from "@/components/ActivityGraph";
 import ProfileAccess from "@/components/ProfileAccess";
+import TrackingPrefs from "@/components/TrackingPrefs";
 import Footer from "@/components/Footer";
 
 export const metadata = { title: "Profile · Verdant" };
@@ -75,7 +76,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
         </div>
 
         {isMe ? (
-          <div style={{ marginTop: 34 }}>
+          <div style={{ marginTop: 34, display: "grid", gap: 18 }}>
+            <TrackingPrefs tracksWorkouts={user.tracksWorkouts} />
             <ProfileAccess
               visibility={user.visibility}
               invited={invited}

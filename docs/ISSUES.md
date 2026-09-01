@@ -22,9 +22,16 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
 - [ ] **`users.meals_per_day` is null for everyone.** Correct for now — null keeps meals out of
       the scoring target. T2 must set it per user when meal logging ships, or the brightest
       square silently gets harder to reach.
-- [ ] **Exercise tags are the T1 workout source.** `countExerciseTags` reads `logs.tags`. When T3
-      adds real workout sessions, that becomes the source and tags stay as the fallback for days
-      logged before it shipped — don't drop the tag path.
+- [x] **Exercise tags as the workout source:** RESOLVED in T2 — `workoutsForDay` takes the MAX of
+      distinct exercise cards logged that day and `countExerciseTags(logs.tags)`, so the tag path
+      still scores pre-T2 days. Don't remove it.
+- [ ] **Workout points can exceed a target that excludes them.** If someone turns workouts off but
+      still logs cards, those points count toward a target that no longer includes them, so the
+      level caps at 4 early. Benign (you did more than your own bar) and the cap contains it —
+      noted so nobody "fixes" it by accident.
+- [ ] **`public/exercises/` is ~5 MB of committed PNGs.** Fine for git and for Vercel, and they're
+      fetched per-exercise on demand so a phone never downloads all of it. Regenerate with
+      `npm run exercises <source-dir>` if the art is ever replaced.
 - [ ] **`canViewProfile` has no unit test** — it's DB-backed, so it was verified by a live probe
       against Neon (all four transitions) rather than in vitest. Worth a test if it grows.
 - [x] **Timezone for "today"/streak rollover:** RESOLVED — fixed group TZ `Asia/Singapore`,

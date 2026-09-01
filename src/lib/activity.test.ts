@@ -56,6 +56,16 @@ describe("targetPoints", () => {
     expect(targetPoints({ mealsPerDay: 2, tracksWorkouts: false })).toBe(4);
   });
 
+  it("drops by MAX_WORKOUTS when a user opts out of workouts", () => {
+    // Someone who only diets must still be able to reach the brightest square.
+    expect(targetPoints({ mealsPerDay: null, tracksWorkouts: false })).toBe(2);
+    expect(
+      level(day({ weighed: true, checkedIn: true }), { mealsPerDay: null, tracksWorkouts: false }),
+    ).toBe(4);
+    // ...whereas with workouts on, the same day is only halfway there.
+    expect(level(day({ weighed: true, checkedIn: true }))).toBe(2);
+  });
+
   it("is never below 1, so level() can't divide by zero", () => {
     expect(targetPoints({ mealsPerDay: -5, tracksWorkouts: false })).toBeGreaterThanOrEqual(1);
   });

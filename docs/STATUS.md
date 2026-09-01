@@ -2,6 +2,39 @@
 
 _Shared tracker across all agents/sessions. Newest log entry on top. Keep this current._
 
+## Log (2026-09-02) — T2: workout cards (the `workouts` scoring slot is now real)
+
+- **`/workouts`** — a library of exercise cards you build, not a session logger. A card is a
+  name, a figure, sets and an amount; tapping it logs a dated completion. Routines group cards
+  and **Log all** logs the lot. Masonry grid + add-card, reusing the Journal's `.jmasonry` /
+  `.jentry` / temp-id optimistic pattern and `PaperModal` for history.
+- **The bundled pack:** 302 exercises × 3 frames from bryllim/workout-guide. `npm run exercises`
+  (`scripts/build-exercise-assets.mjs`, uses the existing `sharp` dep) converts 512px → 256px
+  16-colour palette PNGs, **32 MB → 5.0 MB**, and generates `src/lib/exercises/catalog.ts`.
+  Licence is **CC BY-SA 4.0** → `CREDITS.md` added and must travel with the repo.
+- ⚠️ **The art is WHITE line-work on transparent — invisible on the cream background as an
+  `<img>`.** It's rendered as a **CSS mask** painted with `var(--ink)` (`ExerciseFigure`),
+  which also makes the figures theme-aware for free. Verified by compositing the alpha against
+  both palettes. If you ever swap in new art, keep the mask; don't reach for `<img>`.
+- **`amount` + `unit`, not `reps`:** 49 catalogue entries are timed, so a Plank card reads
+  "3 sets × 45 seconds". The unit is pre-filled from the catalogue when you pick an exercise.
+- **Counters are derived** (`COUNT(exercise_logs)`), never stored — no second truth to drift.
+  `exercise_logs` copies sets/amount/unit at log time so editing a card can't rewrite history.
+- **Scoring:** `activity.ts` unchanged; `getActivityCalendar`/`getStandings` now feed `workouts`
+  from `workoutsForDay(cardsLoggedThatDay, tags)` — the **max** of distinct cards and the old
+  exercise tags, so pre-T2 days keep scoring with no cutover date.
+- **Workouts are now opt-out** (`users.tracks_workouts`, new `TrackingPrefs` card on your own
+  profile). Off drops the daily target by `MAX_WORKOUTS`, so a diet-only user fills their square
+  on weight + check-in alone. Migration **`0011`**, additive, applied to Neon.
+- Also fixed: `.modal` had no max-height/overflow, so a tall form ran off a phone screen
+  (88vh + scroll now); modal inputs bumped 15px → 16px to stop mobile zoom-on-focus.
+- Build clean (15 routes), tsc clean, **40 tests pass**. Verified against the live Neon DB:
+  cards-without-logs score 0, the same card twice still counts once, two distinct cards fill the
+  workout component, and turning workouts off lifts a weight+check-in day from level 2 to 4.
+- **Next (T3):** nutrition — see the plan's locked decisions (Mifflin-St Jeor targets, the
+  saved-foods → bundled-table → Open Food Facts cascade, Tesseract.js label OCR, sleep logged
+  but not scored).
+
 ## Log (2026-09-01) — Invite-only profiles
 - **`users.profile_visibility`** (`everyone` | `invited`, default `everyone`) + a **`profile_invites`**
   table (owner → viewer, one-way, no acceptance step). Migration **`0010`**, additive, applied to Neon.

@@ -180,3 +180,19 @@ quote, Journal, Planner, the claim-code auth flow.
   arbitrary and arguable.
 - `getStandings` uses **four grouped queries**, not one per user. It used to be N+1; don't
   reintroduce that.
+
+## Workout cards (decided 2026-09-02)
+- `/workouts` is a **library you build**, not a session logger or a coach. A card = name, figure,
+  sets, amount. Tapping it writes a dated `exercise_logs` row; the "done 24×" counter is a COUNT
+  of those rows and is never stored.
+- **`amount` + `unit`**, because 49 of the 302 catalogue exercises are timed. A column called
+  `reps` holding seconds would be a lie in the schema.
+- **Figures are CSS masks, not `<img>`.** The bundled art is white line-work on transparent and is
+  invisible on the cream background otherwise. Masking with `var(--ink)` also gets light/dark for
+  free. See `ExerciseFigure`; keep this if the art is ever swapped.
+- Art is **CC BY-SA 4.0** (bryllim/workout-guide, from Everkinetic). `CREDITS.md` must travel with
+  the repo — the ShareAlike term binds the derived images, not Verdant's own source.
+- `workoutsForDay` takes the **max** of distinct cards logged and the old exercise tags, so there's
+  no cutover date between the two sources.
+- **Workouts are opt-out** (`users.tracks_workouts`). Off lowers the daily target rather than
+  penalising — the whole point of scoring against the user's own card.
