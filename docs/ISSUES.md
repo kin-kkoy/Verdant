@@ -15,10 +15,15 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
       jump. Range validated server-side in both the page and `addPlanBlock` (no trust in input).
 - [x] **Garden / game layer:** REMOVED 2026-09-01. The app pivoted to activity tracking; the
       garden, stable, economy and `gardens` table are gone (migration `0009`). Not coming back.
-- [ ] **Service worker cache is still `verdant-v1`** (`public/sw.js`). Anyone who installed the
-      PWA has the OLD cabin app shell cached under that key. **Bump to `verdant-v2` before the
-      next deploy** or they'll be served the stale shell. Deliberately deferred until after T2/T3
-      so it's bumped once.
+- [x] **Service worker cache:** BUMPED to `verdant-v2` on 2026-09-02. The `activate` handler
+      deletes every non-current cache, and `skipWaiting` + `clients.claim` mean it takes over on
+      the next load. NOTE: the earlier "stale cabin shell" warning overstated it — navigations are
+      network-first and `/_next/static/` is content-hashed, so only stable URLs (`/offline.html`,
+      `/icons/*`) could ever go stale. Bump `CACHE` again whenever one of those changes.
+- [ ] **The app has never been deployed.** No `.vercel`, no deploy URL in `.env.local`. The SW also
+      only registers when `NODE_ENV === "production"` (`ServiceWorkerRegister`), so `npm run dev`
+      is NOT a PWA — installing from a dev server gives you a bookmark, not an offline app. For a
+      real phone test: `npm run build && npm start`, reachable on the LAN or deployed.
 - [ ] **Open Food Facts text search was 503 on 2026-09-02** (barcode API fine). Step 3 of the food
       cascade silently no-ops while it's down — expected, and the circuit breaker keeps it from
       stalling the form. If it stays down, the bundled table + saved foods carry the feature.

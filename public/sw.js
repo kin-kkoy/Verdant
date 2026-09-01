@@ -1,4 +1,4 @@
-// Verdant service worker — Chunk A (installable, fast shell).
+// Verdant service worker.
 //
 // Correctness first: Verdant is a server-rendered, AUTHENTICATED app, so this SW
 // must never serve stale authenticated HTML or cache auth/API traffic.
@@ -10,10 +10,18 @@
 //   - Navigations → network-first, so pages are always fresh; the cache and the
 //     offline page are only fallbacks when the network is unavailable.
 //
-// Chunk B (push notifications) will add `push` / `notificationclick` handlers
-// at the marked spot below.
-
-const CACHE = "verdant-v1";
+// Push notification handlers live at the bottom.
+//
+// BUMP `CACHE` whenever a stable-URL asset changes (icons, /offline.html) or after
+// a release that should evict everything. The `activate` handler deletes every
+// cache whose key isn't the current one, and `skipWaiting` + `clients.claim` mean
+// the new worker takes over on the next load rather than waiting for every tab to
+// close. Next's own /_next/static/ assets are content-hashed, so they never go
+// stale on their own — a bump is about the handful of stable URLs, not the app.
+//
+//   v1 -> v2 (2026-09-02): the weight-bet app became an activity tracker; the
+//   cabin/garden routes are gone and /offline.html was written for the old shape.
+const CACHE = "verdant-v2";
 const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {
