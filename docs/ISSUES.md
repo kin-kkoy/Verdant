@@ -19,7 +19,14 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
       PWA has the OLD cabin app shell cached under that key. **Bump to `verdant-v2` before the
       next deploy** or they'll be served the stale shell. Deliberately deferred until after T2/T3
       so it's bumped once.
-- [ ] **`users.meals_per_day` is null for everyone.** Correct for now — null keeps meals out of
+- [ ] **Open Food Facts text search was 503 on 2026-09-02** (barcode API fine). Step 3 of the food
+      cascade silently no-ops while it's down — expected, and the circuit breaker keeps it from
+      stalling the form. If it stays down, the bundled table + saved foods carry the feature.
+- [ ] **Tesseract fetches its language data from a CDN on first use** (~2–4 MB, browser-cached
+      after). OCR therefore needs one online run before it works offline. Acceptable since the
+      scanner is optional; self-host the traineddata under `public/` if that ever matters.
+- [x] **`users.meals_per_day` set per user:** RESOLVED in T3 — the nutrition setup modal asks for it.
+- [ ] ~~**`users.meals_per_day` is null for everyone.**~~ Correct for now — null keeps meals out of
       the scoring target. T2 must set it per user when meal logging ships, or the brightest
       square silently gets harder to reach.
 - [x] **Exercise tags as the workout source:** RESOLVED in T2 — `workoutsForDay` takes the MAX of

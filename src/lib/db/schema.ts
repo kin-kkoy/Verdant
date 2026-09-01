@@ -1,3 +1,4 @@
+import type { ActivityLevel } from "../nutrition/targets";
 import {
   pgTable,
   serial,
@@ -6,6 +7,7 @@ import {
   date,
   numeric,
   boolean,
+  jsonb,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
@@ -48,6 +50,16 @@ export const users = pgTable("users", {
   // MAX_WORKOUTS, so someone who only diets can still reach the brightest square
   // on weight + check-in alone (see src/lib/activity.ts).
   tracksWorkouts: boolean("tracks_workouts").notNull().default(true),
+  // Body profile — collected once, used by Mifflin-St Jeor to turn a weigh-in into
+  // a calorie target (src/lib/nutrition/targets.ts). Null = targets can't be
+  // computed yet and the nutrition page asks for them.
+  heightCm: integer("height_cm"),
+  birthYear: integer("birth_year"),
+  sex: text("sex").$type<"male" | "female">(),
+  activityLevel: text("activity_level").$type<ActivityLevel>(),
+  // A manual target wins over the formula until it's cleared.
+  calorieOverride: integer("calorie_override"),
+  proteinOverride: integer("protein_override"),
   timezone: text("timezone").notNull().default("Asia/Singapore"),
   lastNudgedDay: date("last_nudged_day"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -106,6 +118,9 @@ export const logs = pgTable(
     day: date("day").notNull(),
     note: text("note"),
     tags: text("tags").array().notNull().default([]),
+    // Hours slept. Recorded and shown, but deliberately NOT scored — the
+    // contribution graph stays about what you actively chose to do.
+    sleepHours: numeric("sleep_hours", { precision: 3, scale: 1 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique("logs_user_day").on(t.userId, t.day)],
@@ -247,7 +262,61 @@ export const routineExercises = pgTable(
   (t) => [unique("routine_exercises_routine_exercise").on(t.routineId, t.exerciseId)],
 );
 
+/**
+ * Nutrition — what you ate, and the foods you've taught the app.
+ *
+ * Lookup cascade when a meal is typed: your saved `foods` -> the bundled table in
+ * src/lib/nutrition/foods.ts -> Open Food Facts. Everything is an editable
+ * suggestion; saving a meal offers to remember any food the cascade missed, so it
+ * gets faster and more personal with use.
+ */
+
+/** One food inside a logged meal. Kept denormalised so history never shifts. */
+export type MealItem = {
+  name: string;
+  qty: number;
+  unit: string | null;
+  kcal: number;
+  protein: number;
+  /** Where the numbers came from, for the estimate disclaimer. */
+  source: "saved" | "bundled" | "openfoodfacts" | "label" | "manual";
+};
+
+export const meals = pgTable("meals", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  /** What the user typed, kept verbatim so they can see what was read. */
+  title: text("title").notNull(),
+  kcal: integer("kcal").notNull().default(0),
+  protein: numeric("protein", { precision: 6, scale: 1 }).notNull().default("0"),
+  items: jsonb("items").$type<MealItem[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A food the user taught the app. Beats the bundled table on the next lookup —
+// their own number for their own portion is more accurate than any average.
+export const foods = pgTable(
+  "foods",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    unit: text("unit"),
+    kcal: integer("kcal").notNull(),
+    protein: numeric("protein", { precision: 6, scale: 1 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("foods_user_name").on(t.userId, t.name)],
+);
+
 export type User = typeof users.$inferSelect;
+export type Meal = typeof meals.$inferSelect;
+export type SavedFood = typeof foods.$inferSelect;
 export type Exercise = typeof exercises.$inferSelect;
 export type ExerciseLog = typeof exerciseLogs.$inferSelect;
 export type Routine = typeof routines.$inferSelect;

@@ -1,12 +1,19 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, exerciseLogs, exercises, logs, planItems, profileInvites, routineExercises, routines, users, weighIns } from "./db/schema";
-import type { ExerciseUnit, ProfileVisibility } from "./db/schema";
+import { accessRequests, checkins, diaryEntries, exerciseLogs, exercises, foods, logs, meals, planItems, profileInvites, routineExercises, routines, users, weighIns } from "./db/schema";
+import type { ExerciseUnit, MealItem, ProfileVisibility } from "./db/schema";
 import { addDaysIso, dayNumber, relativeFromNow, todaySG, weekStartSG } from "./date";
 import { daysIn, lostKg, progressPct, round1, streakDays } from "./stats";
-import { DEFAULT_TRACKERS, EMPTY_DAY, level, points, type DayActivity, type Trackers } from "./activity";
+import { EMPTY_DAY, level, points, type DayActivity, type Trackers } from "./activity";
 import { workoutsForDay } from "./workouts";
 import { catalogExercise } from "./exercises/catalog";
+import {
+  ageFromBirthYear,
+  canComputeTargets,
+  dailyTargets,
+  type ActivityLevel,
+  type Targets,
+} from "./nutrition/targets";
 
 export type WeightPoint = { day: string; weight: number };
 
@@ -27,6 +34,8 @@ export type Dashboard = {
   todayTags: string[];
   todayNote: string;
   series: WeightPoint[];
+  /** Today's nutrition, when the user has targets set up. null otherwise. */
+  nutrition: { eatenKcal: number; eatenProtein: number; goalKcal: number; goalProtein: number } | null;
 };
 
 export type Standing = {
@@ -67,6 +76,10 @@ export async function getDashboard(userId: number): Promise<Dashboard | null> {
     .from(logs)
     .where(and(eq(logs.userId, userId), eq(logs.day, today)))
     .limit(1);
+  const todayMeals = await db
+    .select({ kcal: meals.kcal, protein: meals.protein })
+    .from(meals)
+    .where(and(eq(meals.userId, userId), eq(meals.day, today)));
 
   const series: WeightPoint[] = wis.map((w) => ({
     day: w.day,
@@ -96,6 +109,27 @@ export async function getDashboard(userId: number): Promise<Dashboard | null> {
     todayTags: todayLog?.tags ?? [],
     todayNote: todayLog?.note ?? "",
     series,
+    nutrition: (() => {
+      const { goal } = resolveTargets(
+        {
+          heightCm: user.heightCm,
+          birthYear: user.birthYear,
+          sex: user.sex,
+          activityLevel: user.activityLevel,
+          calorieOverride: user.calorieOverride,
+          proteinOverride: user.proteinOverride,
+        },
+        latestWeight,
+        goalKg,
+      );
+      if (!goal) return null;
+      return {
+        eatenKcal: todayMeals.reduce((n, m) => n + m.kcal, 0),
+        eatenProtein: round1(todayMeals.reduce((n, m) => n + Number(m.protein), 0)),
+        goalKcal: goal.kcal,
+        goalProtein: goal.protein,
+      };
+    })(),
   };
 }
 
@@ -113,7 +147,7 @@ export async function getStandings(): Promise<Standing[]> {
   const today = todaySG();
   const windowFrom = addDaysIso(today, -(STANDINGS_WINDOW - 1));
 
-  const [allUsers, allWeighIns, allCheckins, windowLogs, windowExerciseLogs] = await Promise.all([
+  const [allUsers, allWeighIns, allCheckins, windowLogs, windowExerciseLogs, windowMeals] = await Promise.all([
     db.select().from(users).orderBy(asc(users.id)),
     db
       .select({ userId: weighIns.userId, day: weighIns.day, weightKg: weighIns.weightKg })
@@ -132,6 +166,10 @@ export async function getStandings(): Promise<Standing[]> {
       })
       .from(exerciseLogs)
       .where(gte(exerciseLogs.day, windowFrom)),
+    db
+      .select({ userId: meals.userId, day: meals.day })
+      .from(meals)
+      .where(gte(meals.day, windowFrom)),
   ]);
 
   const group = <T extends { userId: number }>(rows: T[]) => {
@@ -147,6 +185,7 @@ export async function getStandings(): Promise<Standing[]> {
   const checkinsBy = group(allCheckins);
   const logsBy = group(windowLogs);
   const exerciseLogsBy = group(windowExerciseLogs);
+  const mealsBy = group(windowMeals);
 
   const rows: Standing[] = allUsers.map((user) => {
     const wis = weighInsBy.get(user.id) ?? [];
@@ -169,6 +208,7 @@ export async function getStandings(): Promise<Standing[]> {
     };
     for (const w of wis) if (w.day >= windowFrom) touch(w.day).weighed = true;
     for (const c of cis) if (c.day >= windowFrom) touch(c.day).checkedIn = true;
+    for (const m of mealsBy.get(user.id) ?? []) touch(m.day).meals += 1;
     const cardsByDay = new Map<string, number[]>();
     for (const e of exerciseLogsBy.get(user.id) ?? []) {
       const list = cardsByDay.get(e.day);
@@ -243,6 +283,7 @@ export function getVisitorDashboard(): Dashboard {
     todayTags: ["Workout", "Clean eating"],
     todayNote: "",
     series,
+    nutrition: { eatenKcal: 961, eatenProtein: 44.5, goalKcal: 1760, goalProtein: 154 },
   };
 }
 
@@ -432,7 +473,7 @@ export async function getActivityCalendar(
   const to = todaySG();
   const from = addDaysIso(to, -(windowDays - 1));
 
-  const [wis, cis, lgs, exl] = await Promise.all([
+  const [wis, cis, lgs, exl, mls] = await Promise.all([
     db
       .select({ day: weighIns.day })
       .from(weighIns)
@@ -449,6 +490,10 @@ export async function getActivityCalendar(
       .select({ day: exerciseLogs.day, exerciseId: exerciseLogs.exerciseId })
       .from(exerciseLogs)
       .where(and(eq(exerciseLogs.userId, userId), gte(exerciseLogs.day, from))),
+    db
+      .select({ day: meals.day })
+      .from(meals)
+      .where(and(eq(meals.userId, userId), gte(meals.day, from))),
   ]);
 
   const byDay = new Map<string, DayActivity>();
@@ -462,6 +507,7 @@ export async function getActivityCalendar(
   };
   for (const w of wis) touch(w.day).weighed = true;
   for (const c of cis) touch(c.day).checkedIn = true;
+  for (const m of mls) touch(m.day).meals += 1;
 
   // Workouts score off whichever evidence is stronger: cards logged that day, or
   // the day's exercise tags (the only source before workout cards existed).
@@ -505,11 +551,11 @@ export function getVisitorActivityCalendar(windowDays = 365): ActivityCalendar {
     byDay.set(d, {
       weighed: true,
       checkedIn: r > 0.4,
-      meals: 0,
+      meals: r > 0.5 ? 3 : r > 0.35 ? 2 : 1,
       workouts: r > 0.82 ? 2 : r > 0.62 ? 1 : 0,
     });
   }
-  return summarize("visitor", byDay, DEFAULT_TRACKERS, from, to);
+  return summarize("visitor", byDay, { mealsPerDay: 3, tracksWorkouts: true }, from, to);
 }
 
 // ---------- Workouts ----------
@@ -673,6 +719,199 @@ export function getVisitorWorkouts(): WorkoutsView {
     ],
     routines: [{ id: -1, name: "Morning set", exerciseIds: [-1, -2] }],
     tracksWorkouts: true,
+  };
+}
+
+// ---------- Nutrition ----------
+
+export type LoggedMeal = {
+  id: number;
+  day: string;
+  title: string;
+  kcal: number;
+  protein: number;
+  items: MealItem[];
+  when: string;
+  ts: number;
+};
+
+export type BodyProfileView = {
+  heightCm: number | null;
+  birthYear: number | null;
+  sex: "male" | "female" | null;
+  activityLevel: ActivityLevel | null;
+  calorieOverride: number | null;
+  proteinOverride: number | null;
+};
+
+export type NutritionView = {
+  mode: "official" | "visitor";
+  day: string;
+  meals: LoggedMeal[];
+  /** Today's totals so far. */
+  eaten: { kcal: number; protein: number };
+  /** null until the body profile is filled in and there's a weigh-in to work from. */
+  targets: Targets | null;
+  /** True when the user typed their own numbers instead of using the formula. */
+  overridden: boolean;
+  /** What the targets actually are after any override — null if unknown. */
+  goal: { kcal: number; protein: number } | null;
+  profile: BodyProfileView;
+  latestWeight: number | null;
+  sleepHours: number | null;
+  mealsPerDay: number | null;
+  savedFoods: { id: number; name: string; unit: string | null; kcal: number; protein: number }[];
+};
+
+/**
+ * Resolve a user's targets: the manual override wins, otherwise Mifflin-St Jeor
+ * from the body profile and the latest weigh-in. Returns nulls when there isn't
+ * enough to compute anything, so the UI can ask rather than guess.
+ */
+function resolveTargets(
+  profile: BodyProfileView,
+  latestWeight: number | null,
+  goalKg: number | null,
+): { targets: Targets | null; goal: { kcal: number; protein: number } | null; overridden: boolean } {
+  const body = {
+    weightKg: latestWeight ?? undefined,
+    heightCm: profile.heightCm ?? undefined,
+    age: profile.birthYear == null ? undefined : ageFromBirthYear(profile.birthYear),
+    sex: profile.sex ?? undefined,
+    activity: profile.activityLevel ?? undefined,
+  };
+  const targets = canComputeTargets(body) ? dailyTargets(body, goalKg) : null;
+
+  const kcal = profile.calorieOverride ?? targets?.calories ?? null;
+  const protein = profile.proteinOverride ?? targets?.protein ?? null;
+  const overridden = profile.calorieOverride != null || profile.proteinOverride != null;
+
+  return {
+    targets,
+    goal: kcal != null && protein != null ? { kcal, protein } : null,
+    overridden,
+  };
+}
+
+/** Everything /nutrition needs for one official user. */
+export async function getNutrition(userId: number, day = todaySG()): Promise<NutritionView | null> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return null;
+
+  const [dayMeals, saved, latest, todayLog] = await Promise.all([
+    db
+      .select()
+      .from(meals)
+      .where(and(eq(meals.userId, userId), eq(meals.day, day)))
+      .orderBy(desc(meals.createdAt)),
+    db.select().from(foods).where(eq(foods.userId, userId)).orderBy(asc(foods.name)),
+    db
+      .select({ weightKg: weighIns.weightKg })
+      .from(weighIns)
+      .where(eq(weighIns.userId, userId))
+      .orderBy(desc(weighIns.day))
+      .limit(1),
+    db
+      .select({ sleepHours: logs.sleepHours })
+      .from(logs)
+      .where(and(eq(logs.userId, userId), eq(logs.day, day)))
+      .limit(1),
+  ]);
+
+  const profile: BodyProfileView = {
+    heightCm: user.heightCm,
+    birthYear: user.birthYear,
+    sex: user.sex,
+    activityLevel: user.activityLevel,
+    calorieOverride: user.calorieOverride,
+    proteinOverride: user.proteinOverride,
+  };
+  const latestWeight = latest.length ? Number(latest[0].weightKg) : null;
+  const goalKg = user.goalKg == null ? null : Number(user.goalKg);
+  const { targets, goal, overridden } = resolveTargets(profile, latestWeight, goalKg);
+
+  const list: LoggedMeal[] = dayMeals.map((m) => ({
+    id: m.id,
+    day: m.day,
+    title: m.title,
+    kcal: m.kcal,
+    protein: Number(m.protein),
+    items: m.items ?? [],
+    when: relativeFromNow(new Date(m.createdAt)),
+    ts: new Date(m.createdAt).getTime(),
+  }));
+
+  return {
+    mode: "official",
+    day,
+    meals: list,
+    eaten: {
+      kcal: list.reduce((n, m) => n + m.kcal, 0),
+      protein: round1(list.reduce((n, m) => n + m.protein, 0)),
+    },
+    targets,
+    goal,
+    overridden,
+    profile,
+    latestWeight,
+    sleepHours: todayLog[0]?.sleepHours == null ? null : Number(todayLog[0].sleepHours),
+    mealsPerDay: user.mealsPerDay,
+    savedFoods: saved.map((f) => ({
+      id: f.id,
+      name: f.name,
+      unit: f.unit,
+      kcal: f.kcal,
+      protein: Number(f.protein),
+    })),
+  };
+}
+
+/** Visitor teaser — in-memory only, nothing persisted (NOTES hard rule). */
+export function getVisitorNutrition(): NutritionView {
+  const day = todaySG();
+  return {
+    mode: "visitor",
+    day,
+    meals: [
+      {
+        id: -1,
+        day,
+        title: "a bowl of munggo and two cups of rice",
+        kcal: 622,
+        protein: 22.6,
+        items: [
+          { name: "Munggo (mung bean stew)", qty: 1, unit: "bowl", kcal: 212, protein: 14, source: "bundled" },
+          { name: "White rice, cooked", qty: 2, unit: "cup", kcal: 410, protein: 8.6, source: "bundled" },
+        ],
+        when: "2 hrs ago",
+        ts: Date.now() - 7_200_000,
+      },
+      {
+        id: -2,
+        day,
+        title: "3 eggs and a pandesal",
+        kcal: 339,
+        protein: 21.9,
+        items: [
+          { name: "Egg", qty: 3, unit: null, kcal: 234, protein: 18.9, source: "bundled" },
+          { name: "Pandesal", qty: 1, unit: "piece", kcal: 105, protein: 3, source: "bundled" },
+        ],
+        when: "this morning",
+        ts: Date.now() - 21_600_000,
+      },
+    ],
+    eaten: { kcal: 961, protein: 44.5 },
+    targets: null,
+    goal: { kcal: 1760, protein: 154 },
+    overridden: false,
+    profile: {
+      heightCm: 170, birthYear: 2000, sex: "male", activityLevel: "light",
+      calorieOverride: null, proteinOverride: null,
+    },
+    latestWeight: 70,
+    sleepHours: 7.5,
+    mealsPerDay: 3,
+    savedFoods: [],
   };
 }
 

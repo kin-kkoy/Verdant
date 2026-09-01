@@ -196,3 +196,19 @@ quote, Journal, Planner, the claim-code auth flow.
   no cutover date between the two sources.
 - **Workouts are opt-out** (`users.tracks_workouts`). Off lowers the daily target rather than
   penalising — the whole point of scoring against the user's own card.
+
+## Nutrition (decided 2026-09-02)
+- **Targets are Mifflin-St Jeor**, recomputed from the latest weigh-in. A deficit is clamped so it
+  never falls below resting burn (floor 1200 kcal) — don't remove that clamp.
+- **Lookup is a cascade and the order matters**: the user's own saved foods beat the bundled table
+  beat Open Food Facts. Their number for their portion is more accurate than any average, and
+  steps 1–2 are offline, which is the point on a phone.
+- **Open Food Facts is a free community service and goes down.** There's a circuit breaker in
+  `lookup.ts`; keep it. Never let a lookup failure block logging a meal.
+- **Every estimate is editable before it's stored.** Parsing and OCR are suggestions, never blind
+  writes — there's a visible disclaimer saying the numbers are public-data estimates.
+- **Label photos are not stored**, only the parsed numbers. Tesseract is dynamically imported so
+  it stays out of the main bundle.
+- **Sleep is logged but never scored.** The graph stays about what you actively chose to do.
+- `users.meals_per_day` is set in the nutrition setup modal. Null still means "not tracking meals",
+  which keeps meals out of the target.

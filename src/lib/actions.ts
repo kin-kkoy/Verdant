@@ -5,8 +5,11 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { auth, signOut } from "./auth";
 import { db } from "./db";
-import { accessRequests, checkins, diaryEntries, exerciseLogs, exercises, logs, planItems, profileInvites, pushSubscriptions, routineExercises, routines, users, weighIns } from "./db/schema";
-import type { ExerciseUnit, ProfileVisibility } from "./db/schema";
+import { accessRequests, checkins, diaryEntries, exerciseLogs, exercises, foods, logs, meals, planItems, profileInvites, pushSubscriptions, routineExercises, routines, users, weighIns } from "./db/schema";
+import type { ExerciseUnit, MealItem, ProfileVisibility } from "./db/schema";
+import { parseMeal } from "./nutrition/parse";
+import { resolveItems, totals } from "./nutrition/lookup";
+import { ACTIVITY_FACTORS, type ActivityLevel, type Sex } from "./nutrition/targets";
 import { catalogExercise } from "./exercises/catalog";
 import { todaySG, validPlannerWeek, weekStartSG } from "./date";
 import { isOwner } from "./owner";
@@ -409,6 +412,249 @@ export async function setTracksWorkouts(on: boolean): Promise<ActionResult> {
   revalidatePath("/");
   revalidatePath("/standings");
   revalidatePath("/profile", "layout");
+  return { ok: true };
+}
+
+// ---------- Nutrition ----------
+
+const MAX_MEAL_TITLE = 300;
+const MAX_MEAL_ITEMS = 30;
+const MAX_SAVED_FOODS = 500;
+
+/** Meals move the contribution graph, so they touch the same surfaces as a check-in. */
+function revalidateNutrition() {
+  revalidatePath("/nutrition");
+  revalidatePath("/");
+  revalidatePath("/standings");
+  revalidatePath("/profile", "layout");
+}
+
+/**
+ * Read a typed meal and hand back editable estimates. Writes NOTHING.
+ *
+ * The whole point of splitting this from `saveMeal` is that the user always sees
+ * what the cascade guessed, and can fix it, before anything is stored.
+ */
+export async function estimateMeal(
+  text: string,
+): Promise<{ ok: true; items: MealItem[] } | { ok: false; error: string }> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const clean = text.trim().slice(0, MAX_MEAL_TITLE);
+  if (!clean) return { ok: false, error: "What did you eat?" };
+
+  const parsed = parseMeal(clean).slice(0, MAX_MEAL_ITEMS);
+  if (parsed.length === 0) return { ok: false, error: "Couldn't read that — try \"2 cups rice\"." };
+
+  const saved = await db
+    .select({ name: foods.name, unit: foods.unit, kcal: foods.kcal, protein: foods.protein })
+    .from(foods)
+    .where(eq(foods.userId, userId));
+
+  const resolved = await resolveItems(
+    parsed,
+    saved.map((f) => ({ name: f.name, unit: f.unit, kcal: f.kcal, protein: Number(f.protein) })),
+  );
+
+  return {
+    ok: true,
+    items: resolved.map((r) => ({
+      name: r.name,
+      qty: r.qty,
+      unit: r.unit,
+      kcal: r.kcal,
+      protein: r.protein,
+      source: r.source,
+    })),
+  };
+}
+
+function cleanItems(items: MealItem[]): MealItem[] {
+  return items.slice(0, MAX_MEAL_ITEMS).map((i) => ({
+    name: String(i.name ?? "").trim().slice(0, 80) || "Something",
+    qty: Number.isFinite(i.qty) && i.qty > 0 ? Math.round(i.qty * 100) / 100 : 1,
+    unit: i.unit ? String(i.unit).slice(0, 16) : null,
+    kcal: Math.max(0, Math.min(20_000, Math.round(Number(i.kcal) || 0))),
+    protein: Math.max(0, Math.min(2000, Math.round((Number(i.protein) || 0) * 10) / 10)),
+    source: i.source ?? "manual",
+  }));
+}
+
+/** Store a meal for today, with whatever numbers the user settled on. */
+export async function saveMeal(
+  title: string,
+  items: MealItem[],
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const clean = title.trim().slice(0, MAX_MEAL_TITLE);
+  if (!clean) return { ok: false, error: "Give the meal a name." };
+
+  const rows = cleanItems(items);
+  const sum = totals(rows);
+
+  const [row] = await db
+    .insert(meals)
+    .values({
+      userId,
+      day: todaySG(),
+      title: clean,
+      kcal: sum.kcal,
+      protein: String(sum.protein),
+      items: rows,
+    })
+    .returning({ id: meals.id });
+
+  revalidateNutrition();
+  return { ok: true, id: row.id };
+}
+
+export async function deleteMeal(id: number): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  await db.delete(meals).where(and(eq(meals.id, id), eq(meals.userId, userId)));
+  revalidateNutrition();
+  return { ok: true };
+}
+
+/**
+ * Teach the app a food. Next time it's typed, the cascade stops at step 1 with
+ * the user's own number — better than any public average for their own portion.
+ */
+export async function saveFood(
+  name: string,
+  unit: string | null,
+  kcal: number,
+  protein: number,
+): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const clean = name.trim().slice(0, 80);
+  if (!clean) return { ok: false, error: "Give the food a name." };
+  if (!Number.isFinite(kcal) || kcal < 0 || kcal > 20_000) {
+    return { ok: false, error: "That calorie number looks off." };
+  }
+  if (!Number.isFinite(protein) || protein < 0 || protein > 2000) {
+    return { ok: false, error: "That protein number looks off." };
+  }
+
+  const existing = await db.select({ id: foods.id }).from(foods).where(eq(foods.userId, userId));
+  if (existing.length >= MAX_SAVED_FOODS) {
+    return { ok: false, error: "That's a lot of saved foods already." };
+  }
+
+  await db
+    .insert(foods)
+    .values({
+      userId,
+      name: clean,
+      unit: unit ? unit.slice(0, 16) : null,
+      kcal: Math.round(kcal),
+      protein: String(Math.round(protein * 10) / 10),
+    })
+    .onConflictDoUpdate({
+      target: [foods.userId, foods.name],
+      set: {
+        unit: unit ? unit.slice(0, 16) : null,
+        kcal: Math.round(kcal),
+        protein: String(Math.round(protein * 10) / 10),
+      },
+    });
+
+  revalidatePath("/nutrition");
+  return { ok: true };
+}
+
+export async function deleteFood(id: number): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  await db.delete(foods).where(and(eq(foods.id, id), eq(foods.userId, userId)));
+  revalidatePath("/nutrition");
+  return { ok: true };
+}
+
+/** The one-time body profile the calorie formula needs. */
+export async function saveBodyProfile(input: {
+  heightCm: number | null;
+  birthYear: number | null;
+  sex: Sex | null;
+  activityLevel: ActivityLevel | null;
+  mealsPerDay: number | null;
+}): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const { heightCm, birthYear, sex, activityLevel, mealsPerDay } = input;
+  if (heightCm != null && (!Number.isFinite(heightCm) || heightCm < 90 || heightCm > 250)) {
+    return { ok: false, error: "That height looks off." };
+  }
+  const thisYear = new Date().getUTCFullYear();
+  if (birthYear != null && (!Number.isInteger(birthYear) || birthYear < thisYear - 120 || birthYear > thisYear - 5)) {
+    return { ok: false, error: "That birth year looks off." };
+  }
+  if (sex != null && sex !== "male" && sex !== "female") {
+    return { ok: false, error: "Unknown option." };
+  }
+  if (activityLevel != null && !(activityLevel in ACTIVITY_FACTORS)) {
+    return { ok: false, error: "Unknown activity level." };
+  }
+  if (mealsPerDay != null && (!Number.isInteger(mealsPerDay) || mealsPerDay < 1 || mealsPerDay > 6)) {
+    return { ok: false, error: "Pick between 1 and 6 meals a day." };
+  }
+
+  await db
+    .update(users)
+    .set({ heightCm, birthYear, sex, activityLevel, mealsPerDay })
+    .where(eq(users.id, userId));
+
+  revalidateNutrition();
+  return { ok: true };
+}
+
+/** Type your own targets, or clear them to go back to the formula. */
+export async function setTargetOverride(
+  calories: number | null,
+  protein: number | null,
+): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  if (calories != null && (!Number.isFinite(calories) || calories < 800 || calories > 10_000)) {
+    return { ok: false, error: "Pick a calorie target between 800 and 10,000." };
+  }
+  if (protein != null && (!Number.isFinite(protein) || protein < 10 || protein > 500)) {
+    return { ok: false, error: "Pick a protein target between 10 and 500 g." };
+  }
+  await db
+    .update(users)
+    .set({
+      calorieOverride: calories == null ? null : Math.round(calories),
+      proteinOverride: protein == null ? null : Math.round(protein),
+    })
+    .where(eq(users.id, userId));
+
+  revalidateNutrition();
+  return { ok: true };
+}
+
+/** Hours slept last night. Recorded, shown, and deliberately not scored. */
+export async function saveSleep(hours: number | null): Promise<ActionResult> {
+  const userId = await requireUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+  if (hours != null && (!Number.isFinite(hours) || hours < 0 || hours > 24)) {
+    return { ok: false, error: "That's not a number of hours." };
+  }
+  const day = todaySG();
+  const value = hours == null ? null : String(Math.round(hours * 10) / 10);
+  await db
+    .insert(logs)
+    .values({ userId, day, sleepHours: value })
+    .onConflictDoUpdate({ target: [logs.userId, logs.day], set: { sleepHours: value } });
+
+  revalidatePath("/nutrition");
+  revalidatePath("/");
   return { ok: true };
 }
 

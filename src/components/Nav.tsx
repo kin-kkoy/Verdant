@@ -9,6 +9,7 @@ import { signOutAction } from "@/lib/actions";
 const LINKS = [
   { href: "/profile", label: "Profile" },
   { href: "/workouts", label: "Workouts" },
+  { href: "/nutrition", label: "Food" },
   { href: "/journal", label: "Journal" },
   { href: "/planner", label: "Planner" },
   { href: "/standings", label: "Standings" },

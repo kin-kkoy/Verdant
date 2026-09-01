@@ -2,6 +2,35 @@
 
 _Shared tracker across all agents/sessions. Newest log entry on top. Keep this current._
 
+## Log (2026-09-02) — T3: nutrition (protein, calories, sleep)
+
+- **`/nutrition`** — write a meal the way you'd say it ("a bowl of munggo and two cups of rice")
+  and it's parsed, costed and shown as **editable** rows before anything is stored. Meal cards
+  reuse `.jmasonry` / `PaperModal`. Daily meters show what's left, with copy that says falling
+  short is fine.
+- **Targets — Mifflin-St Jeor** (`src/lib/nutrition/targets.ts`), recalculated off the latest
+  weigh-in. New one-time profile fields `height_cm`, `birth_year`, `sex`, `activity_level`.
+  Direction comes from the existing **signed** `goal_kg`, so bulking gets a surplus. **A deficit
+  is never allowed below resting burn**, floor 1200 kcal — crash-diet targets are not something
+  this app should hand out. `calorie_override`/`protein_override` win until cleared.
+- **Lookup cascade** (`src/lib/nutrition/lookup.ts`): **your saved foods → bundled table →
+  Open Food Facts** (PH-filtered, no key). Each step only runs if the previous missed, so the
+  common case never touches the network — this is a PWA on phone data. Anything the user types
+  the numbers for is saved to their own foods, so the cascade gets faster with use.
+- ⚠️ **Open Food Facts text search was returning 503 while building this** (their barcode API was
+  fine — it's their search backend). The cascade degrades to "type it yourself" correctly, and a
+  **circuit breaker** now skips the endpoint for 5 minutes after a failure so an unknown food
+  doesn't stall the form. Measured: 957ms on the first miss, ~0ms after.
+- **Label OCR** — `LabelScanner` runs Tesseract.js on the phone via a **dynamic import**, so its
+  ~2MB never enters the main bundle (`/nutrition` is 7.5 kB). Labels are downscaled to 1600px,
+  not the journal's 900px, which loses small print. Always a review screen; the photo is **not**
+  stored, only the numbers.
+- **Meals feed the graph** — `getActivityCalendar`/`getStandings` now count meals per day into the
+  `meals` slot, and `users.meals_per_day` is set in the setup modal (resolving the ISSUES warning).
+- **Sleep** is logged in hours on `logs.sleep_hours` and deliberately **not scored**.
+- Migration **`0012`**, additive. Build clean (16 routes), tsc clean, **61 tests pass** (20 new
+  nutrition ones incl. the real "622 kcal / 22.6 g" meal and OCR digit-mangling).
+
 ## Log (2026-09-02) — T2: workout cards (the `workouts` scoring slot is now real)
 
 - **`/workouts`** — a library of exercise cards you build, not a session logger. A card is a

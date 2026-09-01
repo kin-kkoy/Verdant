@@ -7,6 +7,7 @@ import {
   type ActivityCalendar,
   type Dashboard,
 } from "@/lib/data";
+import Link from "next/link";
 import { todaySG } from "@/lib/date";
 import { dailyLine } from "@/lib/quotes";
 import ActivityGraph from "@/components/ActivityGraph";
@@ -100,9 +101,79 @@ export default async function LandingPage() {
         </div>
       </section>
 
+      {d.nutrition ? (
+        <section className="section" style={{ paddingTop: 0 }}>
+          <div className="wrap">
+            <div className="card nutsummary" style={{ marginBottom: 0 }}>
+              <div className="section-head" style={{ marginBottom: 18 }}>
+                <div className="eyebrow">Today · food</div>
+                <p style={{ fontSize: 15 }}>
+                  <Link href="/nutrition">Log what you ate →</Link>
+                </p>
+              </div>
+              <Remaining
+                label="Calories"
+                eaten={d.nutrition.eatenKcal}
+                goal={d.nutrition.goalKcal}
+                unit="kcal"
+              />
+              <Remaining
+                label="Protein"
+                eaten={d.nutrition.eatenProtein}
+                goal={d.nutrition.goalProtein}
+                unit="g"
+              />
+              <p className="nutkind">
+                No worries if you don&apos;t finish it. Getting close, most days, is the whole game.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <ProgressSection d={d} />
 
       <Footer />
     </>
+  );
+}
+
+/** The "how much is left today" strip. Server component — no interactivity. */
+function Remaining({
+  label,
+  eaten,
+  goal,
+  unit,
+}: {
+  label: string;
+  eaten: number;
+  goal: number;
+  unit: string;
+}) {
+  const left = Math.round((goal - eaten) * 10) / 10;
+  const pct = Math.min(100, Math.round((eaten / goal) * 100));
+  return (
+    <div className="nutmeter">
+      <div className="pl">
+        <span>{label}</span>
+        <span>
+          <b className="num">{eaten}</b> / {goal} {unit}
+        </span>
+      </div>
+      <div className="track">
+        <i style={{ width: `${pct}%`, background: left < 0 ? "var(--gold)" : "var(--accent)" }} />
+      </div>
+      <div className="nutleft">
+        {left >= 0 ? (
+          <>
+            <b className="num">{left}</b> {unit} left
+          </>
+        ) : (
+          <>
+            <b className="num">{Math.abs(left)}</b> {unit} over
+          </>
+        )}
+      </div>
+    </div>
   );
 }
