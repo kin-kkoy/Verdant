@@ -212,3 +212,15 @@ quote, Journal, Planner, the claim-code auth flow.
 - **Sleep is logged but never scored.** The graph stays about what you actively chose to do.
 - `users.meals_per_day` is set in the nutrition setup modal. Null still means "not tracking meals",
   which keeps meals out of the target.
+
+## Mobile layout (learned the hard way, 2026-09-16)
+- **The nav does not fit on a phone.** Six destinations + auth buttons ≈ 1000px intrinsic. Below
+  880px they live in a drawer. If you add a destination, add it to `LINKS` in `Nav.tsx` — it goes
+  into both the desktop row and the drawer — and then run `npm run check:mobile`.
+- **Never use the `padding` shorthand on a class that can share an element with `.wrap`.**
+  `.section{ padding:64px 0 }` silently zeroed `.wrap`'s side padding on 10+ pages. Use
+  `padding-block`.
+- **Anything wider than ~320px needs its own `overflow-x:auto` container**, and if a header and a
+  body must stay aligned (the planner calendar) they need ONE shared scroller, not two.
+- `body{overflow-x:hidden}` hides these bugs from `scrollWidth` but does NOT stop a phone from
+  panning. Don't treat it as a fix, and remember the check script has to lift it to measure.

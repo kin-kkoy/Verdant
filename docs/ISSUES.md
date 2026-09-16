@@ -67,6 +67,13 @@ _Bugs/risks + what we INTENTIONALLY skip to ship faster. Triage lives here._
       next-auth v5-beta) are at latest patched. `audit fix --force` would downgrade-break; skip.
 - [ ] **Photo storage:** move off base64 → Vercel Blob; downscale client-side before upload.
 
+- [ ] **`/scripts/` is gitignored, so no build script is in the repo.** `package.json` references
+      four of them (`icons`, `vapid`, `exercises`, `check:mobile`) that a fresh clone won't have.
+      `seed.ts` / `reset-password.ts` touch real accounts so excluding those is reasonable, but
+      `build-exercise-assets.mjs` and `check-mobile-layout.mjs` hold no secrets and a self-hoster
+      needs the first one to regenerate the exercise figures. Un-ignoring those two is a one-line
+      `.gitignore` change (`!/scripts/build-exercise-assets.mjs` etc.) — owner's call.
+
 ## Safe to SKIP for v1 (ship faster; revisit later)
 - **Anti-cheat hardening** — unnecessary with ~5 trusted users, and boards derive only from real
   logged data regardless. Someone could pad their own squares by checking in dishonestly; that's

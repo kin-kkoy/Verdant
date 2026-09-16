@@ -2,6 +2,32 @@
 
 _Shared tracker across all agents/sessions. Newest log entry on top. Keep this current._
 
+## Log (2026-09-16) — Mobile layout fixes (the PWA was unusable sideways)
+
+Reported from the installed PWA: swiping right revealed a huge blank area. Four separate
+horizontal-overflow bugs, all confirmed by measurement, not by eye:
+
+- **The nav was 857px wide on a 390px phone.** Six destinations plus the auth buttons have
+  ~1000px of intrinsic width and nothing hid them below 880px. Now the inline `.links` row and
+  `.navactions` are hidden on mobile and everything moves into a **drawer** (`Nav.tsx`), leaving
+  the bar as brand + theme + hamburger. Closes on navigate, backdrop tap, and Escape.
+- **`.section{ padding:64px 0 }` zeroed the horizontal padding of every `<div class="wrap
+  section">`** — 10+ pages ran flush to the screen edge, because `.section` comes after `.wrap`
+  in the file and the shorthand sets all four sides. Now `padding-block`, so it only touches the
+  vertical axis. This was live on desktop too, just invisible above ~1160px.
+- **The planner calendar is 616px wide below 880px with no X scroller.** `.cal-head` and `.cal`
+  are now wrapped in a single `.cal-x` container so the header and grid scroll together;
+  `.cal-scroll` keeps its own Y scroll inside.
+- **Standings rows had ~344px of fixed columns** before the name started. They stack below 560px.
+
+Also: `.wrap` padding 28px → 18px on phones, and softer `.section`/`.card`/`.modal-bg` padding.
+
+- **New: `npm run check:mobile`** (`scripts/check-mobile-layout.mjs`) drives headless Chrome over
+  CDP and fails on any element extending past the viewport. Validated by running it against the
+  broken code first — it reported 6 of 7 pages failing at `docScrollWidth=857`. Re-run it after
+  adding a nav item or a wide grid. Verified clean at 390 / 360 / 320px.
+- tsc clean, 61 tests pass, build clean (15 routes).
+
 ## Log (2026-09-02) — T3: nutrition (protein, calories, sleep)
 
 - **`/nutrition`** — write a meal the way you'd say it ("a bowl of munggo and two cups of rice")

@@ -336,19 +336,23 @@ export default function PlannerBoard({
         </div>
       </div>
 
-      <div className="cal-head">
-        <div />
-        {DAYS.map((d) => (
-          <div className="ch" key={d}>
-            {d}
-          </div>
-        ))}
-      </div>
-      <div
-        className="cal-scroll"
-        ref={scrollRef}
-        style={expanded ? undefined : { maxHeight: 520, overflowY: "auto" }}
-      >
+      {/* One horizontal scroller wraps the head AND the grid so the day columns
+          stay aligned on a phone; without it the 616px-wide calendar pushed the
+          whole page sideways. Vertical scrolling stays on .cal-scroll inside. */}
+      <div className="cal-x">
+        <div className="cal-head">
+          <div />
+          {DAYS.map((d) => (
+            <div className="ch" key={d}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <div
+          className="cal-scroll"
+          ref={scrollRef}
+          style={expanded ? undefined : { maxHeight: 520, overflowY: "auto" }}
+        >
         <div className="cal">
           {HOURS.map((h) => (
             <Fragment key={h}>
@@ -399,6 +403,7 @@ export default function PlannerBoard({
               ))}
             </Fragment>
           ))}
+          </div>
         </div>
       </div>
 
